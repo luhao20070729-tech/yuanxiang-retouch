@@ -1,0 +1,2645 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>原相修图</title>
+</head>
+<body style="margin:0">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a dark studio stage for the photo on the left, a retouch panel on the right; stacks on phones. */
+:root {
+  --bg: #EFEDEE;
+  --panel: #FBFAFA;
+  --ink: #1F1B1E;
+  --muted: #6D6569;
+  --line: #DCD6D9;
+  --accent: #A8325A;
+  --accent-soft: #F3DCE4;
+  --on-accent: #FFFFFF;
+  --stage: #262326;
+  --stage-ink: #E9E4E7;
+  --ok: #2F7D5B;
+  --warn: #A86A12;
+  --display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141214; --panel: #1C191B; --ink: #EEE9EC; --muted: #A49BA0; --line: #342F32;
+    --accent: #E06E93; --accent-soft: #3A2129; --on-accent: #1A0F13; --stage: #0B0A0B; --stage-ink: #E9E4E7;
+    --ok: #6CC79C; --warn: #E2A84B; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141214; --panel: #1C191B; --ink: #EEE9EC; --muted: #A49BA0; --line: #342F32;
+  --accent: #E06E93; --accent-soft: #3A2129; --on-accent: #1A0F13; --stage: #0B0A0B; --stage-ink: #E9E4E7;
+  --ok: #6CC79C; --warn: #E2A84B; color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.55; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { min-height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; }
+.stage { background: var(--stage); color: var(--stage-ink); display: flex; flex-direction: column; min-width: 0; height: 100vh; position: sticky; top: 0; align-self: start; overflow: auto; }
+.stagebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding-block: 14px; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: 20px; }
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand h1 { font-family: var(--display); font-weight: 900; font-size: 22px; letter-spacing: 0.08em; margin: 0; }
+.brand span { font-size: 12px; opacity: 0.6; letter-spacing: 0.04em; }
+.status { font-family: var(--mono); font-size: 12px; opacity: 0.75; display: flex; align-items: center; gap: 8px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+.dot.ok { background: var(--ok); }
+.dot.err { background: #D9534F; }
+
+.canvaswrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 20px 20px; min-height: 0; position: relative; }
+.frame { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+#view { max-width: 100%; max-height: calc(100vh - 150px); width: auto; height: auto; display: block; box-shadow: 0 10px 40px rgba(0,0,0,.45); background: #000; }
+.canvaswrap { overflow: hidden; }
+.frame { transform-origin: 0 0; touch-action: none; }
+.frame.zoomed { cursor: grab; }
+.frame.zoomed:active { cursor: grabbing; }
+.zoombar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-block: 0 14px; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: 20px; }
+.zsp { flex: 1; }
+.zb { border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.06); color: var(--stage-ink); border-radius: 6px; padding: 6px 11px; cursor: pointer; font-size: 13px; line-height: 1.2; user-select: none; -webkit-user-select: none; touch-action: none; }
+.zb:hover { border-color: var(--accent); }
+.zb.hold { padding-inline: 16px; }
+.zb.hold:active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#zoomLabel { font-family: var(--mono); font-size: 12px; min-width: 46px; text-align: center; opacity: 0.8; font-variant-numeric: tabular-nums; }
+#brush { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
+#brush.on { pointer-events: auto; cursor: crosshair; }
+.badge { position: absolute; left: 12px; top: 12px; font-size: 12px; line-height: 1; padding: 6px 9px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff; letter-spacing: 0.06em; }
+.busy { position: absolute; right: 12px; top: 12px; font-size: 12px; line-height: 1; padding: 6px 9px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff; }
+
+.empty { max-width: 640px; width: 100%; display: grid; gap: 22px; padding-block: 24px; }
+.empty h2 { font-family: var(--display); font-weight: 900; font-size: clamp(26px, 4.2vw, 40px); line-height: 1.25; margin: 0; text-wrap: balance; }
+.empty p { margin: 0; opacity: 0.75; max-width: 34em; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.12); }
+.step { background: var(--stage); padding: 14px; display: grid; gap: 6px; align-content: start; }
+.step b { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; opacity: 0.6; font-weight: 400; }
+.step strong { font-size: 15px; }
+.step small { font-size: 12px; opacity: 0.7; line-height: 1.5; }
+.drop { border: 1.5px dashed rgba(255,255,255,.35); border-radius: 6px; padding: 26px 18px; display: grid; place-items: center; gap: 10px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: rgba(255,255,255,.04); }
+.drop .big { font-size: 16px; font-weight: 700; }
+.drop small { opacity: 0.6; }
+
+.panel { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0;
+  padding-block: 18px 28px; padding-left: 20px; padding-right: max(20px, env(safe-area-inset-right, 0px)); gap: 22px; }
+.sec { display: grid; gap: 10px; }
+.sec h3 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+.sec h3 button { font-size: 12px; letter-spacing: 0; font-weight: 500; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
+
+.report { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13px; }
+.report dt { color: var(--muted); }
+.report dd { margin: 0; font-variant-numeric: tabular-nums; min-width: 0; }
+.report .num { font-family: var(--mono); font-size: 12px; }
+.report .placeholder { color: var(--muted); grid-column: 1 / -1; }
+
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 8px 4px; cursor: pointer; display: grid; gap: 1px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button small { font-size: 11px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.seg button[aria-pressed="true"] small { color: inherit; opacity: 0.8; }
+
+.group { display: grid; gap: 4px; }
+.grp { border-top: 1px solid var(--line); }
+.grp:last-child { border-bottom: 1px solid var(--line); }
+.grp summary { font-size: 13px; font-weight: 700; padding: 9px 0; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+.grp summary::-webkit-details-marker { display: none; }
+.grp summary::after { content: "展开"; font-size: 12px; font-weight: 400; color: var(--muted); }
+.grp[open] summary::after { content: "收起"; }
+.grp .group { padding-bottom: 10px; }
+.ctl { display: grid; grid-template-columns: 76px minmax(0, 1fr) 30px; align-items: center; gap: 10px; }
+.ctl label { font-size: 13px; }
+.ctl output { font-family: var(--mono); font-size: 12px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ctl.off { opacity: 0.4; }
+.ctl .note { grid-column: 2 / -1; font-size: 11px; color: var(--muted); margin-top: -4px; }
+.track { position: relative; height: 22px; display: flex; align-items: center; }
+.track .tick { position: absolute; top: 2px; width: 2px; height: 5px; background: var(--accent); border-radius: 1px; transform: translateX(-1px); pointer-events: none; }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+
+.sbig { display: flex; align-items: baseline; gap: 10px; font-family: var(--display); }
+.sbig span { font-size: 28px; color: var(--muted); font-weight: 600; }
+.sbig .arrow { font-size: 20px; }
+.sbig b { font-size: 44px; font-weight: 900; color: var(--accent); line-height: 1; }
+.sbig small { font-family: var(--mono); font-size: 13px; color: var(--ok); }
+.sbar { display: grid; grid-template-columns: 64px minmax(0, 1fr) 54px; gap: 8px; align-items: center; font-size: 12px; }
+.sbar i { position: relative; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.sbar b, .sbar em { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.sbar em { background: var(--accent); opacity: 0.85; }
+.sbar b { background: var(--muted); opacity: 0.55; z-index: 1; height: 3px; top: auto; }
+.sbar output { font-family: var(--mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 11px; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.chip:hover { border-color: var(--accent); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.chip i { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,.2); display: inline-block; }
+.chip sup { font-size: 10px; color: var(--accent); }
+.chip[aria-pressed="true"] sup { color: inherit; }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+.toggle { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; cursor: pointer; }
+.toggle input { margin-top: 3px; accent-color: var(--accent); }
+.toggle small { display: block; color: var(--muted); font-size: 12px; }
+
+.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 9px 12px; cursor: pointer; font-weight: 500; touch-action: none; user-select: none; -webkit-user-select: none; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.wide { grid-column: 1 / -1; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 6px; font-size: 13px; z-index: 20; max-width: calc(100% - 32px); }
+
+@media (max-width: 880px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: auto; position: relative; overflow: visible; }
+  #view { max-height: 70vh; }
+  /* with a photo open, it stays in view at the top while the controls scroll underneath */
+  .app.has-photo .stage { position: sticky; top: 0; z-index: 5; }
+  .app.has-photo #view { max-height: 44vh; }
+  .app.has-photo .stagebar { padding-block: 8px 4px; }
+  .app.has-photo .brand span, .app.has-photo .status { display: none; }
+  .app.has-photo .canvaswrap { padding-top: 4px; padding-bottom: 8px; }
+  .app.has-photo .zoombar { padding-bottom: 8px; }
+  .app.has-photo #zoomOut, .app.has-photo #zoomIn, .app.has-photo #zoomLabel, .app.has-photo #zoom100 { display: none; } /* pinch or double-tap to zoom on a phone */
+  .panel { border-left: 0; border-top: 1px solid var(--line); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .stagebar { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .canvaswrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+@media (max-width: 560px) { .steps { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <section class="stage">
+    <div class="stagebar">
+      <div class="brand"><h1>原相修图</h1><span>修得好看，还是你自己</span></div>
+      <div class="status"><i class="dot" id="dot"></i><span id="status">正在加载识别模型（首次约 45 MB）…</span></div>
+    </div>
+    <div class="canvaswrap" id="canvaswrap">
+      <div class="empty" id="empty">
+        <h2>放一张照片进来，修好的版本马上出来。</h2>
+        <p>不套模板脸。先读懂这张照片里的人，再按 TA 原本的样子做相对调整：肤色只提亮不换色号，痣和雀斑默认保留，脸型和身材只做几个百分点的微调。</p>
+        <div class="steps">
+          <div class="step"><b>STEP 1</b><strong>识别</strong><small>人脸 478 个特征点、人体 33 个关键点，逐像素分出头发、皮肤和衣服</small></div>
+          <div class="step"><b>STEP 2</b><strong>读懂这张照片</strong><small>肤质纹理、肤色 ITA 角、黑眼圈深浅、光线和色偏</small></div>
+          <div class="step"><b>STEP 3</b><strong>按原样修</strong><small>每项力度由分析结果决定，背景保持原样，保存时输出高清大图</small></div>
+        </div>
+        <label class="drop" id="drop" for="file">
+          <span class="big">选择照片，或拖到这里</span>
+          <small>也可以直接粘贴。照片只在你的浏览器里处理，不会上传。</small>
+        </label>
+      </div>
+      <div class="frame" id="frame" hidden>
+        <canvas id="view"></canvas>
+        <canvas id="brush"></canvas>
+        <span class="badge" id="badge">修图后</span>
+        <span class="busy" id="busy" hidden>处理中…</span>
+      </div>
+    </div>
+    <div class="zoombar" id="zoombar" hidden>
+      <button class="zb hold" id="holdCmp" type="button">按住对比</button>
+      <button class="zb" id="swapPhoto" type="button">换照片</button>
+      <button class="zb" id="closePhoto" type="button" aria-label="关闭这张照片">关闭</button>
+      <span class="zsp"></span>
+      <button class="zb" id="zoomOut" type="button" aria-label="缩小">−</button>
+      <output id="zoomLabel">100%</output>
+      <button class="zb" id="zoomIn" type="button" aria-label="放大">+</button>
+      <button class="zb" id="zoomFit" type="button">适应</button>
+      <button class="zb" id="zoom100" type="button">1:1</button>
+    </div>
+    <input type="file" id="file" accept="image/*" hidden>
+    <input type="file" id="refFile" accept="image/*" hidden>
+  </section>
+
+  <aside class="panel">
+    <div class="sec score" id="score" hidden>
+      <h3>成片评分</h3>
+      <div class="sbig"><span id="sBefore">--</span><span class="arrow">→</span><b id="sAfter">--</b><small id="sDelta"></small></div>
+      <div id="sBars"></div>
+      <p class="hint">按修图师会处理的几项来量：皮肤纹理、肤色均匀、黑眼圈、气色、光线、眼睛和嘴唇的神采。衡量的是照片的完成度，不是给长相下结论。</p>
+    </div>
+
+    <div class="sec">
+      <h3>这张照片 <button id="newphoto" type="button" hidden>换一张</button></h3>
+      <dl class="report" id="report"><dd class="placeholder">放入照片后，这里会显示分析结果和修了哪些地方。</dd></dl>
+    </div>
+
+    <div class="sec">
+      <h3>整体力度 <button id="resetauto" type="button" disabled>恢复智能推荐</button></h3>
+      <div class="seg" role="group" aria-label="整体力度">
+        <button type="button" data-preset="0" aria-pressed="false">清淡<small>轻微美颜</small></button>
+        <button type="button" data-preset="1" aria-pressed="true">自然<small>推荐</small></button>
+        <button type="button" data-preset="2" aria-pressed="false">精致<small>美颜更足</small></button>
+      </div>
+      <p class="hint">三档都和抖音拍摄页美颜一样只修脸、不化妆、不加滤镜，只是强度不同。想要妆容和风格，可在下面自己选。</p>
+    </div>
+
+    <div class="sec" id="sliders"></div>
+
+    <div class="sec">
+      <h3>一键风格</h3>
+      <div class="chips" id="lookChips" role="group" aria-label="一键风格"></div>
+      <h3>妆容</h3>
+      <div class="chips" id="mkChips" role="group" aria-label="妆容"></div>
+      <h3>调色</h3>
+      <div class="chips" id="gradeChips" role="group" aria-label="调色风格"></div>
+      <h3>氛围（加在原背景上）</h3>
+      <div class="chips" id="atmoChips" role="group" aria-label="氛围"></div>
+      <h3>换背景</h3>
+      <div class="chips" id="bgChips" role="group" aria-label="背景"></div>
+      <p class="hint">换背景会沿着照片里的真实边缘抠出人像，再按新背景的光线和色调调整人物，让两者更融合。头发很乱或光线差别很大的照片仍可能看出合成痕迹，建议放大检查。</p>
+    </div>
+
+    <div class="sec">
+      <h3>保留个人特色</h3>
+      <label class="toggle"><input type="checkbox" id="keepMoles" checked><span>保留痣和雀斑<small>只去红痘和红印；关掉后小黑点也会去掉</small></span></label>
+      <label class="toggle"><input type="checkbox" id="keepTexture" checked><span>保留皮肤纹理<small>磨皮后把毛孔质感加回来，避免塑料脸</small></span></label>
+    </div>
+
+    <div class="sec">
+      <h3>消除笔</h3>
+      <p class="hint">背景里的路人、垃圾桶、电线等，涂抹后自动用周围的纹理补上。适合较小的杂物。</p>
+      <div class="btns">
+        <button class="btn" id="eraseMode" type="button" disabled>开始涂抹</button>
+        <button class="btn" id="eraseUndo" type="button" disabled>撤销消除</button>
+        <div class="ctl wide" style="grid-column:1/-1" id="brushCtl" hidden><label for="brushSize">笔刷大小</label><div class="track"><input type="range" id="brushSize" min="1" max="12" value="4"></div><output id="brushOut">4</output></div>
+        <button class="btn primary wide" id="eraseApply" type="button" hidden>消除涂抹的区域</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="btns">
+        <button class="btn" id="compare" type="button" disabled>按住看原图</button>
+        <button class="btn primary" id="save" type="button" disabled>保存修好的照片</button>
+      </div>
+      <p class="hint" id="saveHint">保存时会按更高分辨率重新处理一遍，得到高清大图。滚轮、双指或双击可放大细看，放大后按住对比（或空格）看同一处原图。</p>
+    </div>
+  </aside>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const ss = (a, b, x) => { x = clamp((x - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
+const lerp = (a, b, t) => a + (b - a) * t;
+// sliders work on a preview; saving re-runs everything at a higher resolution
+const PREVIEW_MAX = 1600;
+const EXPORT_MAX = navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 900 ? 2400 : 3200;
+const PREFS_KEY = 'yuanxiang-prefs';
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch { return {}; } })();
+const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {} };
+
+// ---------- parameters ----------
+const PARAMS = [
+  { g: '皮肤', k: 'smooth', name: '磨皮' },
+  { k: 'acne', name: '祛痘' },
+  { k: 'white', name: '提亮美白' },
+  { k: 'unify', name: '肤色统一' },
+  { k: 'fill', name: '人像补光' },
+  { k: 'dark', name: '去黑眼圈' },
+  { k: 'folds', name: '淡法令纹' },
+  { g: '五官', k: 'slim', name: '瘦脸' },
+  { k: 'eyes', name: '大眼' },
+  { k: 'nose', name: '瘦鼻' },
+  { k: 'iris', name: '美瞳亮眼' },
+  { k: 'lips', name: '丰唇' },
+  { g: '身材', k: 'body', name: '瘦身' },
+  { k: 'legs', name: '长腿' },
+  { g: '画面', k: 'detail', name: '画质增强' },
+  { k: 'tone', name: '光线色彩' },
+  { k: 'bg', name: '背景虚化' },
+  { g: '精修（精致档）', k: 'contour', name: '光影立体' },
+  { k: 'eyelight', name: '眼神提亮' },
+  { k: 'bgtone', name: '背景弱化' },
+  { k: 'glow', name: '柔光' },
+  { k: 'vignette', name: '暗角' },
+  { k: 'grain', name: '胶片质感' },
+  { k: 'clean', name: '画面净化' },
+  { k: 'peach', name: '气色红润' },
+  { k: 'hair', name: '发丝光泽' },
+  { g: '妆容', k: 'makeup', name: '妆容浓淡' },
+];
+// 清淡 / 自然 / 精致: all three are Douyin-camera-style beauty (face only: smoothing, whitening, slimmer face,
+// bigger eyes, clarity), no makeup or colour filter — just different strengths. 精致 also runs the finer skin passes.
+const PRESETS = [
+  { m: 0.6 },
+  { m: 1 },
+  { m: 1.35, fine: true },
+];
+const KIND = { smooth: 'skin', acne: 'skin', dark: 'skin', detail: 'skin', white: 'color', tone: 'color', bg: 'color', slim: 'shape', eyes: 'shape', body: 'shape', legs: 'shape',
+  contour: 'pro', eyelight: 'pro', bgtone: 'pro', glow: 'pro', vignette: 'pro', grain: 'pro', makeup: 'mk',
+  folds: 'skin', nose: 'shape', iris: 'pro', unify: 'skin', fill: 'color', clean: 'pro', lips: 'pro', peach: 'pro', hair: 'pro' };
+// virtual makeup looks, after the three formulas in the reference video (韩系甜妹 / 欧美高级 / 姐感烟熏)
+// colours are multiply tints (white = no change); a = strength of each part
+const MAKEUPS = {
+  none:  { n: '无' },
+  kr:    { n: '韩系甜妹', blush: [[0.98, 0.64, 0.66], 0.5], lips: [[0.96, 0.42, 0.42], 0.72, 'gradient'], shadow: [[0.94, 0.72, 0.66], 0.35],
+           liner: [[0.15, 0.11, 0.1], 0.6, false], lash: [[0.3, 0.22, 0.2], 0.35], aegyo: 0.5, brow: [[0.45, 0.34, 0.28], 0.45], gloss: 0.6 },
+  us:    { n: '欧美高级', blush: [[0.92, 0.68, 0.62], 0.35], lips: [[0.72, 0.42, 0.38], 0.65, 'full'], shadow: [[0.6, 0.44, 0.36], 0.6],
+           liner: [[0.18, 0.13, 0.12], 0.6, true], aegyo: 0, brow: [[0.45, 0.36, 0.32], 0.35], gloss: 0.5 },
+  smoky: { n: '姐感烟熏', blush: [[0.8, 0.55, 0.55], 0.15], lips: [[0.58, 0.3, 0.3], 0.5, 'full'], shadow: [[0.3, 0.27, 0.29], 0.75],
+           liner: [[0.08, 0.07, 0.08], 0.85, true], lower: 0.45, aegyo: 0, brow: [[0.4, 0.34, 0.32], 0.35], gloss: 0.15 },
+};
+// colour styles, modelled on common retouching looks
+const GRADES = {
+  none:  { n: '原色' },
+  cream: { n: '奶油', lift: 0.04, gain: 0.98, con: 0.05, wb: [1.02, 1, 0.965], sat: 0.9, sh: [0.01, 0.005, 0], hi: [0.015, 0.01, 0] },
+  clear: { n: '清透', lift: 0.03, gain: 1.03, con: 0, wb: [0.985, 1, 1.03], sat: 0.88, sh: [0, 0.005, 0.015], hi: [0.01, 0.01, 0.01] },
+  film:  { n: '胶片', lift: 0.05, gain: 0.96, con: 0.25, wb: [1.01, 1, 0.98], sat: 0.93, sh: [-0.005, 0.01, 0.02], hi: [0.02, 0.01, -0.01] },
+  warm:  { n: '暖金', lift: 0.02, gain: 1, con: 0.1, wb: [1.05, 1, 0.92], sat: 1, sh: [0.01, 0, -0.01], hi: [0.02, 0.012, 0] },
+  grey:  { n: '高级灰', lift: 0.04, gain: 0.97, con: 0.05, wb: [0.99, 1, 1.01], sat: 0.72, sh: [0, 0, 0.01], hi: [0.005, 0.005, 0.005] },
+  cool:  { n: '冷白', lift: 0.03, gain: 1.02, con: 0.05, wb: [0.97, 1, 1.04], sat: 0.85, sh: [0, 0.004, 0.012], hi: [0.012, 0.012, 0.016] },
+  hk:    { n: '港风', lift: 0.03, gain: 0.97, con: 0.3, wb: [1.06, 1, 0.9], sat: 1.08, sh: [0, 0.02, 0.012], hi: [0.03, 0.012, -0.02] },
+  pink:  { n: '暖粉', lift: 0, gain: 1.0, con: 0, wb: [1.02, 0.99, 0.985], sat: 1.05, sh: [0.008, 0, 0.012], hi: [0.012, 0.006, 0.012] },
+  retro: { n: '古早冷调', lift: 0.025, gain: 0.99, con: 0.22, wb: [0.98, 1, 1.0], sat: 0.76, sh: [0, 0.012, 0.014], hi: [0.012, 0.01, 0.008] },
+  ref:   { n: '参考图…' },
+};
+// replacement backgrounds: two plain studio backdrops and CC0 scenery photos from Wikimedia Commons
+// (Juan Griego Sunset — Wilfredor; Cherry blossom in Roppongi Hills 2021 — Syced; Pink flower meadow under
+// snowy mountain — Pixel.la; Frontenac Hotel lobby — Wilfredor; Sant'Angelo bridge by night — Jebulon;
+// Bokeh raindrops on a window 2 — W.carter)
+const BACKS = {
+  orig:   { n: '原背景' },
+  grey:   { n: '影棚灰', c: [0.56, 0.54, 0.52] },
+  cream:  { n: '奶油米', c: [0.86, 0.81, 0.74] },
+  sakura: { n: '樱花', img: 'bg/sakura.jpg' },
+  beach:  { n: '海边日落', img: 'bg/beach.jpg' },
+  meadow: { n: '雪山花海', img: 'bg/meadow.jpg' },
+  lobby:  { n: '酒店大堂', img: 'bg/lobby.jpg' },
+  city:   { n: '城市夜景', img: 'bg/city.jpg' },
+  bokeh:  { n: '光斑夜色', img: 'bg/bokeh.jpg' },
+};
+// atmosphere added on top of the photo's own background
+const ATMOS = { none: '无', sun: '暖阳', bokeh: '光斑', star: '星闪', petal: '花瓣', haze: '柔雾' };
+// one-tap styles: a colour style + atmosphere + finishing amounts
+// the first three follow the reference video's formulas: 骨相修图 (bone-structure contour) + 改妆 (makeup) (+ 水光 dewy skin)
+const LOOKS = {
+  // matches the reference: clean soft finish, pink-white tone, soft glow, fuller lips, darker irises, V-line
+  kr:    { n: '韩系甜妹', mk: 'kr', grade: 'pink', atmo: 'none', set: { contour: 0.85, peach: 0.7, hair: 0.6, eyelight: 0.45, iris: 0.6, lips: 0.5, glow: 0.12, clean: 0.65, makeup: 0.8, bgtone: 0.2, vignette: 0, grain: 0 } },
+  us:    { n: '欧美高级', mk: 'us', grade: 'warm', atmo: 'none', set: { contour: 0.95, eyelight: 0.7, iris: 0.6, nose: 0.55, glow: 0.3, makeup: 0.9, bgtone: 0.4, vignette: 0.25, grain: 0.05 } },
+  smoky: { n: '姐感烟熏', mk: 'smoky', grade: 'retro', atmo: 'none', set: { contour: 0.7, eyelight: 0.5, iris: 0.7, glow: 0.15, makeup: 0.9, bgtone: 0.45, vignette: 0.45, grain: 0.3 } },
+  jp:    { n: '日系胶片', mk: 'none', grade: 'film', atmo: 'haze', set: { glow: 0.25, vignette: 0.3, grain: 0.45 } },
+  cream: { n: '奶油肌', mk: 'none', grade: 'cream', atmo: 'sun', set: { glow: 0.45, contour: 0.5, bgtone: 0.4, vignette: 0.2, grain: 0.1 } },
+  night: { n: '氛围夜景', mk: 'none', grade: 'warm', atmo: 'bokeh', set: { glow: 0.45, vignette: 0.5, bgtone: 0.5, grain: 0.2 } },
+};
+const sceneCache = {};
+function loadScene(k) {
+  if (sceneCache[k]) return sceneCache[k];
+  return sceneCache[k] = new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = BACKS[k].img; });
+}
+
+const S = {
+  W: 0, H: 0, base: null, A: null, P: {}, auto: {}, preset: 1,
+  out: null, history: [], erase: false, rendering: false, pending: false, name: 'photo',
+  grade: 'none', back: 'orig', atmo: 'none', look: null, scenes: {}, mk: 'none', refStats: null,
+};
+if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) { window.__S = S; window.__renderFull = () => renderFull(); } // local testing only
+
+// ---------- UI scaffolding ----------
+(function buildSliders() {
+  const box = $('#sliders');
+  // sliders in collapsible groups: the everyday ones open, the fine-tuning ones folded away
+  let html = '', open = false;
+  for (const p of PARAMS) {
+    if (p.g) { if (open) html += '</div></details>'; html += `<details class="grp"${p.g === '皮肤' || p.g === '五官' ? ' open' : ''}><summary>${p.g}</summary><div class="group">`; open = true; }
+    html += `<div class="ctl" id="c-${p.k}"><label for="p-${p.k}">${p.name}</label>
+      <div class="track"><input type="range" id="p-${p.k}" min="0" max="100" value="0" disabled><i class="tick" id="t-${p.k}" hidden></i></div>
+      <output id="o-${p.k}">0</output><span class="note" id="n-${p.k}" hidden></span></div>`;
+  }
+  if (open) html += '</div></details>';
+  box.innerHTML = html;
+  for (const p of PARAMS) {
+    const el = $('#p-' + p.k);
+    el.addEventListener('input', () => { S.P[p.k] = el.value / 100; $('#o-' + p.k).textContent = el.value; $('#resetauto').disabled = false; schedule(); });
+  }
+})();
+
+function setSliders(vals, autoVals) {
+  for (const p of PARAMS) {
+    const v = Math.round((vals[p.k] || 0) * 100);
+    const el = $('#p-' + p.k);
+    el.value = v; $('#o-' + p.k).textContent = v; S.P[p.k] = v / 100;
+    if (autoVals) {
+      const t = $('#t-' + p.k), av = autoVals[p.k] || 0;
+      t.hidden = av <= 0; t.style.left = `calc(${av * 100}% + ${8 - av * 16}px)`;
+    }
+  }
+}
+function setAvail(k, ok, note) {
+  const el = $('#p-' + k);
+  el.disabled = !ok; $('#c-' + k).classList.toggle('off', !ok);
+  const n = $('#n-' + k); n.hidden = ok || !note; n.textContent = note || '';
+}
+function setStatus(text, state) {
+  $('#status').textContent = text;
+  $('#dot').className = 'dot' + (state ? ' ' + state : '');
+}
+let toastT;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
+
+// ---------- models ----------
+const M = {};
+let modelError = null;
+const modelsReady = (async () => {
+  let V, fs, base;
+  try {
+    V = await import('./mp/vision_bundle.mjs');
+    base = new URL('./mp/', location.href).href;
+    fs = { wasmLoaderPath: base + 'vision_wasm_internal.js', wasmBinaryPath: base + 'vision_wasm_internal.wasm' };
+  } catch (e) {
+    console.error(e); modelError = e;
+    setStatus('识别模型没能加载，只能做光线色彩调整', 'err');
+    return;
+  }
+  // model files are shipped as base64 text (in parts when large) so they can be served next to the page
+  const FILES = { face: ['face_landmarker.task'], seg: ['selfie_multiclass.tflite.a', 'selfie_multiclass.tflite.b'], pose: ['pose_landmarker_lite.task'] };
+  const TOTAL = 34.6e6; // all parts together, for the progress figure
+  let got = 0, shown = -1;
+  const progress = () => { const p = Math.min(99, Math.round(got / TOTAL * 100)); if (p !== shown) { shown = p; setStatus(`正在加载识别模型 ${p}%（首次约 45 MB）…`); } };
+  const part = async f => {
+    const res = await fetch(base + f + '.b64.txt');
+    if (!res.ok) throw new Error(f + ' ' + res.status);
+    let s = '';
+    if (res.body && res.body.getReader) {
+      const rd = res.body.getReader(), td = new TextDecoder();
+      for (;;) { const { done, value } = await rd.read(); if (done) break; got += value.length; progress(); s += td.decode(value, { stream: true }); }
+      s += td.decode();
+    } else { s = await res.text(); got += s.length; progress(); }
+    const bin = atob(s.trim()), u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  };
+  const model = async k => {
+    const ps = await Promise.all(FILES[k].map(part));
+    if (ps.length === 1) return ps[0];
+    const u = new Uint8Array(ps.reduce((s, p) => s + p.length, 0)); let o = 0;
+    for (const p of ps) { u.set(p, o); o += p.length; }
+    return u;
+  };
+  const bo = buf => ({ modelAssetBuffer: buf, delegate: 'CPU' });
+  // each model stands on its own: if one fails to load, the features that need it are switched off, the rest still work
+  const make = {
+    face: buf => V.FaceLandmarker.createFromOptions(fs, { baseOptions: bo(buf), runningMode: 'IMAGE', numFaces: 6, minFaceDetectionConfidence: 0.4, minFacePresenceConfidence: 0.4 }),
+    seg: buf => V.ImageSegmenter.createFromOptions(fs, { baseOptions: bo(buf), runningMode: 'IMAGE', outputConfidenceMasks: true, outputCategoryMask: false }),
+    pose: buf => V.PoseLandmarker.createFromOptions(fs, { baseOptions: bo(buf), runningMode: 'IMAGE', numPoses: 1, outputSegmentationMasks: false }),
+  };
+  const bufs = await Promise.all(Object.keys(FILES).map(k => model(k).catch(e => { console.error(e); return null; })));
+  const failed = [];
+  for (const [i, k] of Object.keys(FILES).entries()) {
+    try { if (!bufs[i]) throw new Error('no data'); M[k] = await make[k](bufs[i]); } catch (e) { console.error(e); failed.push(k); }
+  }
+  if (!failed.length) setStatus('模型就绪，照片只在本机处理', 'ok');
+  else if (failed.length === 3) { modelError = new Error('models'); setStatus('识别模型没能加载，只能做光线色彩调整', 'err'); }
+  else { modelError = new Error('models'); setStatus('部分识别模型没能加载，个别功能不可用（刷新页面可重试）', 'err'); }
+})();
+
+// ---------- image helpers ----------
+// area-averaged small copy of a full-size plane
+function downscale(src, W, H, w, h) {
+  if (w === W && h === H) return new Float32Array(src);
+  const out = new Float32Array(w * h), cnt = new Float32Array(w * h), xm = new Int32Array(W);
+  for (let x = 0; x < W; x++) xm[x] = Math.min(w - 1, (x * w / W) | 0);
+  for (let y = 0; y < H; y++) { const o = Math.min(h - 1, (y * h / H) | 0) * w, s = y * W; for (let x = 0; x < W; x++) { out[o + xm[x]] += src[s + x]; cnt[o + xm[x]]++; } }
+  for (let i = 0; i < out.length; i++) out[i] /= cnt[i] || 1;
+  return out;
+}
+// Snaps soft model masks to the real edges in the photo (guided filter on brightness), only in the
+// uncertain band around each mask's outline. Returns a function so several masks share the same setup.
+function makeRefiner(I, W, H) {
+  const n = W * H, r = Math.max(3, Math.round(Math.min(W, H) * 0.006)), eps = 1e-3, II = new Float32Array(n);
+  for (let i = 0; i < n; i++) II[i] = I[i] * I[i];
+  const mI = blur(I, W, H, r), vI = blur(II, W, H, r);
+  for (let i = 0; i < n; i++) vI[i] = vI[i] - mI[i] * mI[i] + eps;
+  return p => {
+    const Ip = new Float32Array(n); for (let i = 0; i < n; i++) Ip[i] = I[i] * p[i];
+    const mp = blur(p, W, H, r), a = blur(Ip, W, H, r), b = new Float32Array(n);
+    for (let i = 0; i < n; i++) { a[i] = (a[i] - mI[i] * mp[i]) / vI[i]; b[i] = mp[i] - a[i] * mI[i]; }
+    const ma = blur(a, W, H, r), mb = blur(b, W, H, r), out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const pv = p[i], q = clamp(ma[i] * I[i] + mb[i], 0, 1);
+      out[i] = pv > 0.985 ? 1 : pv < 0.01 ? 0 : lerp(pv, q, Math.min(1, 6 * pv * (1 - pv)));
+    }
+    return out;
+  };
+}
+function boxH(src, dst, w, h, r) {
+  const inv = 1 / (2 * r + 1);
+  for (let y = 0; y < h; y++) {
+    const o = y * w; let acc = 0;
+    for (let i = -r; i <= r; i++) acc += src[o + clamp(i, 0, w - 1)];
+    for (let x = 0; x < w; x++) {
+      dst[o + x] = acc * inv;
+      acc += src[o + Math.min(w - 1, x + r + 1)] - src[o + Math.max(0, x - r)];
+    }
+  }
+}
+function boxV(src, dst, w, h, r) {
+  const inv = 1 / (2 * r + 1);
+  const acc = new Float32Array(w);
+  for (let i = -r; i <= r; i++) { const o = clamp(i, 0, h - 1) * w; for (let x = 0; x < w; x++) acc[x] += src[o + x]; }
+  for (let y = 0; y < h; y++) {
+    const o = y * w, a = Math.min(h - 1, y + r + 1) * w, s = Math.max(0, y - r) * w;
+    for (let x = 0; x < w; x++) { dst[o + x] = acc[x] * inv; acc[x] += src[a + x] - src[s + x]; }
+  }
+}
+function blur(src, w, h, r, passes = 1) {
+  r = Math.round(r);
+  const a = new Float32Array(src);
+  if (r < 1) return a;
+  const t = new Float32Array(src.length);
+  for (let p = 0; p < passes; p++) { boxH(a, t, w, h, r); boxV(t, a, w, h, r); }
+  return a;
+}
+function guided(I, w, h, r, eps) {
+  const n = I.length, II = new Float32Array(n);
+  for (let i = 0; i < n; i++) II[i] = I[i] * I[i];
+  const mI = blur(I, w, h, r), mII = blur(II, w, h, r);
+  const a = new Float32Array(n), b = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const v = mII[i] - mI[i] * mI[i]; a[i] = v / (v + eps); b[i] = mI[i] * (1 - a[i]); }
+  const ma = blur(a, w, h, r), mb = blur(b, w, h, r);
+  for (let i = 0; i < n; i++) a[i] = ma[i] * I[i] + mb[i];
+  return a;
+}
+function cropArr(arr, W, bx) {
+  const o = new Float32Array(bx.w * bx.h);
+  for (let y = 0; y < bx.h; y++) { const s = (y + bx.y0) * W + bx.x0; o.set(arr.subarray(s, s + bx.w), y * bx.w); }
+  return o;
+}
+function uncropArr(arr, W, bx, src) {
+  for (let y = 0; y < bx.h; y++) arr.set(src.subarray(y * bx.w, (y + 1) * bx.w), (y + bx.y0) * W + bx.x0);
+}
+function polyMask(W, H, draw) {
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+  x.lineJoin = 'round'; x.lineCap = 'round';
+  draw(x);
+  const d = x.getImageData(0, 0, W, H).data, m = new Float32Array(W * H);
+  for (let i = 0; i < m.length; i++) m[i] = d[i * 4] / 255;
+  return m;
+}
+function tracePath(ctx, pts) {
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.closePath();
+}
+function upsample(src, sw, sh, W, H) {
+  const out = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const fy = clamp((y + 0.5) * sh / H - 0.5, 0, sh - 1), y0 = Math.floor(fy), y1 = Math.min(sh - 1, y0 + 1), ty = fy - y0;
+    for (let x = 0; x < W; x++) {
+      const fx = clamp((x + 0.5) * sw / W - 0.5, 0, sw - 1), x0 = Math.floor(fx), x1 = Math.min(sw - 1, x0 + 1), tx = fx - x0;
+      const a = src[y0 * sw + x0], b = src[y0 * sw + x1], c = src[y1 * sw + x0], d = src[y1 * sw + x1];
+      out[y * W + x] = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+    }
+  }
+  return out;
+}
+function bboxOf(m, W, H, thr, pad) {
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m[y * W + x] > thr) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return null;
+  x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(W - 1, x1 + pad); y1 = Math.min(H - 1, y1 + pad);
+  return { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+function srgbToLab(r, g, b) {
+  const lin = c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  const R = lin(r), G = lin(g), B = lin(b);
+  const X = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047, Y = 0.2126 * R + 0.7152 * G + 0.0722 * B, Z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  return { L: 116 * f(Y) - 16, a: 500 * (f(X) - f(Y)), b: 200 * (f(Y) - f(Z)) };
+}
+function itaClass(ita) {
+  if (ita > 55) return '很浅'; if (ita > 41) return '浅'; if (ita > 28) return '中间型';
+  if (ita > 10) return '小麦色'; if (ita > -30) return '棕色'; return '深色';
+}
+
+// ---------- face geometry ----------
+const OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
+const EYE_R = [33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246];
+const EYE_L = [263,249,390,373,374,380,381,382,362,398,384,385,386,387,388,466];
+const LID_R = [33,7,163,144,145,153,154,155,133];
+const LID_L = [263,249,390,373,374,380,381,382,362];
+const BROW_R = [70,63,105,66,107,55,65,52,53,46];
+const BROW_L = [300,293,334,296,336,285,295,282,283,276];
+const LIPS = [61,185,40,39,37,0,267,269,270,409,291,375,321,405,314,17,84,181,91,146];
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+function buildFace(lms, W, H) {
+  const p = lms.map(l => ({ x: l.x * W, y: l.y * H }));
+  const fw = dist(p[234], p[454]);
+  const down = { x: p[152].x - p[10].x, y: p[152].y - p[10].y }; const dl = Math.hypot(down.x, down.y) || 1; down.x /= dl; down.y /= dl;
+  const eye = (poly, a, b) => {
+    const c = poly.reduce((s, k) => ({ x: s.x + p[k].x / poly.length, y: s.y + p[k].y / poly.length }), { x: 0, y: 0 });
+    return { c, w: dist(p[a], p[b]) };
+  };
+  return { p, fw, down, eyes: [eye(EYE_R, 33, 133), eye(EYE_L, 362, 263)] };
+}
+
+// ---------- analysis ----------
+async function analyze() {
+  const { W, H, base } = S, n = W * H, minD = Math.min(W, H);
+  await modelsReady;
+  const cv = $('#src');
+  const A = { faces: [], person: null, pose: null };
+
+  // channel floats for stats
+  const Y = new Float32Array(n);
+  for (let i = 0; i < n; i++) Y[i] = (0.299 * base[i * 4] + 0.587 * base[i * 4 + 1] + 0.114 * base[i * 4 + 2]) / 255;
+
+  if (M.face) {
+    try { A.faces = (M.face.detect(cv).faceLandmarks || []).map(l => buildFace(l, W, H)).filter(f => f.fw > 24); } catch (e) { console.warn(e); }
+  }
+  // one model labels every pixel of the photo: background / hair / body skin / face skin / clothes / accessories.
+  // Skin, hair and clothing are never guessed from colour.
+  let seg = null, person = null;
+  if (M.seg) {
+    try {
+      const r = M.seg.segment(cv), ms = r.confidenceMasks || [];
+      if (ms.length >= 6) {
+        const get = k => { const mk = ms[k], a = mk.getAsFloat32Array(); return mk.width === W && mk.height === H ? a.slice() : upsample(a, mk.width, mk.height, W, H); };
+        seg = { bg: get(0), hair: get(1), body: get(2), face: get(3), cloth: get(4), other: get(5) };
+      }
+      ms.forEach(m => m.close && m.close()); r.close && r.close();
+    } catch (e) { console.warn(e); seg = null; }
+  }
+  if (seg) { person = new Float32Array(n); for (let i = 0; i < n; i++) person[i] = clamp(1 - seg.bg[i], 0, 1); }
+  if (M.pose) {
+    try {
+      const r = M.pose.detect(cv);
+      if (r.landmarks && r.landmarks.length) {
+        A.pose = r.landmarks[0].map(l => ({ x: l.x * W, y: l.y * H, v: l.visibility ?? 1 }));
+      }
+    } catch (e) { console.warn(e); }
+  }
+
+  const fws = A.faces.map(f => f.fw).sort((a, b) => a - b);
+  A.fw = fws.length ? fws[fws.length >> 1] : minD * 0.12;
+  const fw = A.fw;
+
+  // face skin mask: oval minus eyes / brows / lips
+  let face = null, allowed = null, under = null;
+  if (A.faces.length) {
+    face = polyMask(W, H, ctx => {
+      for (const f of A.faces) {
+        ctx.fillStyle = '#fff'; tracePath(ctx, OVAL.map(k => f.p[k])); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.strokeStyle = '#000';
+        for (const [poly, e] of [[EYE_R, f.eyes[0]], [EYE_L, f.eyes[1]]]) { ctx.lineWidth = e.w * 0.38; tracePath(ctx, poly.map(k => f.p[k])); ctx.fill(); ctx.stroke(); }
+        ctx.lineWidth = f.fw * 0.035;
+        for (const poly of [BROW_R, BROW_L]) { tracePath(ctx, poly.map(k => f.p[k])); ctx.fill(); ctx.stroke(); }
+        ctx.lineWidth = f.fw * 0.03; tracePath(ctx, LIPS.map(k => f.p[k])); ctx.fill(); ctx.stroke();
+      }
+    });
+    face = blur(face, W, H, Math.max(1, fw * 0.012), 2);
+    const nose = polyMask(W, H, ctx => {
+      ctx.fillStyle = '#fff';
+      for (const f of A.faces) {
+        const c = { x: (f.p[98].x + f.p[327].x + f.p[2].x) / 3, y: (f.p[98].y + f.p[327].y + f.p[2].y) / 3 };
+        ctx.beginPath(); ctx.arc(c.x, c.y, f.fw * 0.13, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+    allowed = new Float32Array(n);
+    for (let i = 0; i < n; i++) allowed[i] = ss(0.55, 0.95, face[i]) * (1 - nose[i]);
+    under = polyMask(W, H, ctx => {
+      ctx.fillStyle = '#fff';
+      for (const f of A.faces) for (const [lid, e] of [[LID_R, f.eyes[0]], [LID_L, f.eyes[1]]]) {
+        // from just under the lashes down to the tear trough
+        const top = lid.map(k => ({ x: f.p[k].x + f.down.x * e.w * 0.08, y: f.p[k].y + f.down.y * e.w * 0.08 }));
+        const bot = lid.map((k, i) => { const t = 0.62 + 0.25 * Math.sin(Math.PI * i / (lid.length - 1)); return { x: f.p[k].x + f.down.x * e.w * t, y: f.p[k].y + f.down.y * e.w * t }; }).reverse();
+        tracePath(ctx, top.concat(bot)); ctx.fill();
+      }
+    });
+    under = blur(under, W, H, Math.max(1, fw * 0.035), 2);
+    for (let i = 0; i < n; i++) under[i] *= ss(0.2, 0.6, face[i]);
+    // bangs, a hand or a phone in front of the face are not face skin
+    if (seg) for (let i = 0; i < n; i++) { const s = ss(0.25, 0.6, seg.face[i] + seg.body[i]); allowed[i] *= s; under[i] *= s; }
+  }
+
+  // skin colour model sampled from the face itself
+  let model = null;
+  if (face) {
+    // robust sample from the lower face (bangs often cover the forehead); a phone or hand in front is left out
+    const lower = polyMask(W, H, ctx => { ctx.fillStyle = '#fff'; for (const f of A.faces) { tracePath(ctx, OVAL.slice(8, 29).map(k => f.p[k])); ctx.fill(); } });
+    const ok = i => allowed[i] >= 0.95 && lower[i] > 0.5;
+    const ys_ = [], cbs_ = [], crs_ = [];
+    for (let i = 0; i < n; i += 2) {
+      if (!ok(i)) continue;
+      const r = base[i * 4] / 255, g = base[i * 4 + 1] / 255, b = base[i * 4 + 2] / 255;
+      ys_.push(Y[i]); cbs_.push(-0.1687 * r - 0.3313 * g + 0.5 * b); crs_.push(0.5 * r - 0.4187 * g - 0.0813 * b);
+    }
+    const med = a => { const s = Float32Array.from(a).sort(); return s.length ? s[s.length >> 1] : 0; };
+    const mY = med(ys_), mCb = med(cbs_), mCr = med(crs_);
+    let c = 0, mcb = 0, mcr = 0, scbcb = 0, scrcr = 0, scbcr = 0, sr = 0, sg = 0, sb = 0, sy = 0;
+    for (let i = 0; i < n; i += 2) {
+      if (!ok(i)) continue;
+      const r = base[i * 4] / 255, g = base[i * 4 + 1] / 255, b = base[i * 4 + 2] / 255;
+      const cb = -0.1687 * r - 0.3313 * g + 0.5 * b, cr = 0.5 * r - 0.4187 * g - 0.0813 * b;
+      if (Y[i] < mY * 0.75 || Math.abs(cb - mCb) > 0.035 || Math.abs(cr - mCr) > 0.035) continue;
+      c++; mcb += cb; mcr += cr; scbcb += cb * cb; scrcr += cr * cr; scbcr += cb * cr; sr += r; sg += g; sb += b; sy += Y[i];
+    }
+    if (c > 60) {
+      mcb /= c; mcr /= c;
+      const vbb = scbcb / c - mcb * mcb + 4e-5, vrr = scrcr / c - mcr * mcr + 4e-5, vbr = scbcr / c - mcb * mcr;
+      const det = vbb * vrr - vbr * vbr;
+      model = { mcb, mcr, ibb: vrr / det, irr: vbb / det, ibr: -vbr / det, rgb: [sr / c, sg / c, sb / c], Y: sy / c };
+    }
+  }
+  // skin: what the model labels as skin, snapped to the photo's real edges, minus eyes, brows and lips
+  // (which the face landmarks place exactly). Without the model, only the face itself counts.
+  const skin = new Float32Array(n);
+  if (seg) {
+    const refine = makeRefiner(Y, W, H), sa = new Float32Array(n);
+    for (let i = 0; i < n; i++) sa[i] = Math.min(1, seg.body[i] + seg.face[i]);
+    const sr = refine(sa);
+    A.hair = refine(seg.hair);
+    let feat = null;
+    if (A.faces.length) {
+      feat = polyMask(W, H, ctx => {
+        ctx.fillStyle = ctx.strokeStyle = '#fff';
+        for (const f of A.faces) {
+          for (const [poly, e] of [[EYE_R, f.eyes[0]], [EYE_L, f.eyes[1]]]) { ctx.lineWidth = e.w * 0.38; tracePath(ctx, poly.map(k => f.p[k])); ctx.fill(); ctx.stroke(); }
+          ctx.lineWidth = f.fw * 0.035;
+          for (const poly of [BROW_R, BROW_L]) { tracePath(ctx, poly.map(k => f.p[k])); ctx.fill(); ctx.stroke(); }
+          ctx.lineWidth = f.fw * 0.03; tracePath(ctx, LIPS.map(k => f.p[k])); ctx.fill(); ctx.stroke();
+        }
+      });
+      feat = blur(feat, W, H, Math.max(1, fw * 0.012), 2);
+    }
+    for (let i = 0; i < n; i++) skin[i] = sr[i] * (feat ? 1 - feat[i] : 1);
+    A.cloth = blur(seg.cloth, W, H, Math.max(1, Math.round(minD * 0.002)), 1);
+  } else if (face) skin.set(face);
+  A.skin = blur(skin, W, H, Math.max(1, minD * 0.002), 1);
+  // a smoother version for arms, legs and body
+  A.skinSoft = blur(A.skin, W, H, Math.max(2, Math.round(minD * 0.006)), 2);
+  // where skin-tone changes are applied: skin, never hair lying over it
+  A.skinApply = new Float32Array(n);
+  { let s = 0; for (let i = 0; i < n; i++) { const v = A.skin[i] * (A.hair ? 1 - Math.min(1, A.hair[i] * 1.5) : 1); A.skinApply[i] = v; s += v; } A.hasSkin = s > n * 0.003; }
+  A.allowed = allowed; A.under = under;
+
+  // 精修 masks: eyes / irises, and light-shaping (dodge & burn) zones placed from the face's own landmarks
+  if (A.faces.length) {
+    const P2 = (f, k) => f.p[k];
+    A.eyeMask = blur(polyMask(W, H, ctx => { ctx.fillStyle = '#fff'; for (const f of A.faces) for (const poly of [EYE_R, EYE_L]) { tracePath(ctx, poly.map(k => f.p[k])); ctx.fill(); } }), W, H, 1);
+    A.irisMask = A.faces[0].p.length >= 478 ? blur(polyMask(W, H, ctx => {
+      ctx.fillStyle = '#fff';
+      for (const f of A.faces) for (const [c, e] of [[468, 469], [473, 474]]) { ctx.beginPath(); ctx.arc(f.p[c].x, f.p[c].y, dist(f.p[c], f.p[e]) * 1.05, 0, Math.PI * 2); ctx.fill(); }
+    }), W, H, 1) : null;
+    const line = (ctx, f, ks, wd) => { ctx.lineWidth = wd; ctx.beginPath(); ks.forEach((k, i) => i ? ctx.lineTo(f.p[k].x, f.p[k].y) : ctx.moveTo(f.p[k].x, f.p[k].y)); ctx.stroke(); };
+    const blob = (ctx, c, rx, ry) => { ctx.beginPath(); ctx.ellipse(c.x, c.y, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); };
+    const hi = polyMask(W, H, ctx => {
+      ctx.fillStyle = ctx.strokeStyle = '#fff';
+      for (const f of A.faces) {
+        const w = f.fw;
+        blob(ctx, P2(f, 151), w * 0.16, w * 0.07);          // forehead centre
+        blob(ctx, P2(f, 116), w * 0.06, w * 0.035); blob(ctx, P2(f, 345), w * 0.06, w * 0.035); // top of cheekbones
+        line(ctx, f, [168, 6, 197, 195], w * 0.045);        // nose bridge
+        blob(ctx, P2(f, 118), w * 0.07, w * 0.045);         // under-eye triangles
+        blob(ctx, P2(f, 347), w * 0.07, w * 0.045);
+        blob(ctx, P2(f, 175), w * 0.06, w * 0.035);         // chin
+      }
+    });
+    const sh = polyMask(W, H, ctx => {
+      ctx.fillStyle = ctx.strokeStyle = '#fff';
+      for (const f of A.faces) {
+        const w = f.fw;
+        line(ctx, f, [123, 187], w * 0.06); line(ctx, f, [352, 411], w * 0.06);                       // under cheekbones
+        line(ctx, f, [58, 172, 136, 150], w * 0.06); line(ctx, f, [288, 397, 365, 379], w * 0.06);   // jaw sides
+        // nose sides: from beside the inner eye corners down to the nose wings (slimmer, higher-looking nose)
+        for (const [eyeIn, wing] of [[133, 129], [362, 358]]) {
+          const a = { x: lerp(f.p[168].x, f.p[eyeIn].x, 0.45), y: lerp(f.p[168].y, f.p[eyeIn].y, 0.45) }, b = f.p[wing];
+          ctx.lineWidth = w * 0.028; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+    });
+    // shadow just under the jaw line, on the neck: separates face from neck like studio light
+    const jaw = polyMask(W, H, ctx => {
+      ctx.strokeStyle = '#fff';
+      for (const f of A.faces) {
+        const pts = [172, 136, 150, 149, 176, 148, 152, 377, 400, 378, 379, 365, 397].map(k => ({ x: f.p[k].x + f.down.x * f.fw * 0.05, y: f.p[k].y + f.down.y * f.fw * 0.05 }));
+        ctx.lineWidth = f.fw * 0.09; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+      }
+    });
+    A.contourJaw = blur(jaw, W, H, Math.max(2, fw * 0.04), 2);
+    for (let i = 0; i < n; i++) A.contourJaw[i] *= (1 - ss(0.3, 0.7, face[i])) * ss(0.05, 0.3, A.skin[i]);
+    const rr = Math.max(2, fw * 0.035);
+    A.contourHi = blur(hi, W, H, rr, 2); A.contourSh = blur(sh, W, H, rr, 2);
+    for (let i = 0; i < n; i++) { A.contourHi[i] *= allowed[i] * ss(0.1, 0.4, A.skin[i]); A.contourSh[i] *= ss(0.2, 0.7, face[i]); }
+    // whole face including nose and features, with a wide soft edge (no visible face boundary)
+    A.faceSoft = blur(face, W, H, Math.max(2, Math.round(fw * 0.08)), 2);
+    for (let i = 0; i < n; i++) A.faceSoft[i] = ss(0.15, 0.6, A.faceSoft[i]);
+    A.eyeBox = bboxOf(A.eyeMask, W, H, 0.02, Math.round(fw * 0.05) + 2);
+
+    // makeup zones, placed from each face's own landmarks
+    const LIPS_IN = [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95];
+    const LIDS = [[[33,246,161,160,159,158,157,173,133], [46,53,52,65,55], 0], [[263,466,388,387,386,385,384,398,362], [276,283,282,295,285], 1]];
+    const lerpP = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) });
+    const mk = {};
+    mk.lip = polyMask(W, H, ctx => { for (const f of A.faces) { ctx.fillStyle = '#fff'; tracePath(ctx, LIPS.map(k => f.p[k])); ctx.fill(); ctx.fillStyle = '#000'; tracePath(ctx, LIPS_IN.map(k => f.p[k])); ctx.fill(); } });
+    mk.lipCore = polyMask(W, H, ctx => { ctx.fillStyle = '#fff'; for (const f of A.faces) { tracePath(ctx, LIPS_IN.map(k => f.p[k])); ctx.fill(); } });
+    // diffuse flush across the upper cheeks and over the nose bridge (not round dots)
+    mk.blush = polyMask(W, H, ctx => {
+      ctx.fillStyle = '#fff';
+      for (const f of A.faces) {
+        // from the cheekbones up under the eyes, joined by a lighter band across the nose bridge (微醺 flush)
+        for (const [c, u] of [[205, 117], [425, 346]]) blob(ctx, lerpP(f.p[c], f.p[u], 0.55), f.fw * 0.16, f.fw * 0.1);
+        ctx.globalAlpha = 0.5; blob(ctx, lerpP(f.p[197], f.p[195], 0.5), f.fw * 0.13, f.fw * 0.035);
+        ctx.globalAlpha = 0.6; blob(ctx, f.p[4], f.fw * 0.045, f.fw * 0.03); ctx.globalAlpha = 1; // a touch of pink on the nose tip
+      }
+    });
+    mk.shadow = polyMask(W, H, ctx => {
+      ctx.fillStyle = '#fff';
+      for (const f of A.faces) for (const [lid, brow] of LIDS) {
+        const top = brow.map((k, i) => lerpP(f.p[lid[i * 2]], f.p[k], 0.5)).reverse();
+        tracePath(ctx, lid.map(k => f.p[k]).concat(top)); ctx.fill();
+      }
+    });
+    mk.liner = polyMask(W, H, ctx => { ctx.strokeStyle = '#fff'; for (const f of A.faces) for (const [lid, , side] of LIDS) { const e = f.eyes[side]; line(ctx, f, lid, e.w * 0.07); } });
+    mk.wing = polyMask(W, H, ctx => {
+      ctx.strokeStyle = '#fff';
+      for (const f of A.faces) for (const [lid, , side] of LIDS) {
+        const e = f.eyes[side], o = f.p[lid[0]], inn = f.p[lid[lid.length - 1]], up = { x: -f.down.x, y: -f.down.y };
+        const end = { x: o.x + (o.x - inn.x) * 0.22 + up.x * e.w * 0.12, y: o.y + (o.y - inn.y) * 0.22 + up.y * e.w * 0.12 };
+        ctx.lineWidth = e.w * 0.045; ctx.beginPath(); ctx.moveTo(f.p[lid[1]].x, f.p[lid[1]].y); ctx.lineTo(o.x, o.y); ctx.lineTo(end.x, end.y); ctx.stroke();
+      }
+    });
+    mk.lower = polyMask(W, H, ctx => { ctx.strokeStyle = '#fff'; for (const f of A.faces) for (const [lid, side] of [[LID_R, 0], [LID_L, 1]]) line(ctx, f, lid, f.eyes[side].w * 0.09); });
+    mk.aegyo = polyMask(W, H, ctx => {
+      ctx.strokeStyle = '#fff';
+      for (const f of A.faces) for (const [lid, side] of [[LID_R, 0], [LID_L, 1]]) {
+        const e = f.eyes[side], d = e.w * 0.13; ctx.lineWidth = e.w * 0.12; ctx.beginPath();
+        lid.slice(1, -1).forEach((k, i) => { const p = f.p[k]; i ? ctx.lineTo(p.x + f.down.x * d, p.y + f.down.y * d) : ctx.moveTo(p.x + f.down.x * d, p.y + f.down.y * d); }); ctx.stroke();
+      }
+    });
+    // brows filled in slightly fuller than drawn (a soft outline around the brow shape)
+    mk.brow = polyMask(W, H, ctx => { ctx.fillStyle = ctx.strokeStyle = '#fff'; for (const f of A.faces) for (const poly of [BROW_R, BROW_L]) { ctx.lineWidth = f.fw * 0.012; tracePath(ctx, poly.map(k => f.p[k])); ctx.fill(); ctx.stroke(); } });
+    mk.gloss = polyMask(W, H, ctx => {
+      ctx.fillStyle = ctx.strokeStyle = '#fff';
+      for (const f of A.faces) {
+        const w = f.fw;
+        blob(ctx, lerpP(f.p[117], f.p[118], 0.5), w * 0.05, w * 0.025); blob(ctx, lerpP(f.p[346], f.p[347], 0.5), w * 0.05, w * 0.025);  // cheekbones
+        line(ctx, f, [6, 197, 195], w * 0.018); blob(ctx, f.p[4], w * 0.018, w * 0.014);                                            // nose
+        blob(ctx, lerpP(f.p[14], f.p[17], 0.45), w * 0.04, w * 0.012); blob(ctx, f.p[0], w * 0.025, w * 0.008);                      // lips
+        blob(ctx, f.p[175], w * 0.03, w * 0.015);                                                                                     // chin
+      }
+    });
+    const rb = r => Math.max(1, Math.round(fw * r));
+    mk.lip = blur(mk.lip, W, H, rb(0.006), 2); mk.lipCore = blur(mk.lipCore, W, H, rb(0.05), 2);
+    mk.blush = blur(mk.blush, W, H, rb(0.09), 3); mk.shadow = blur(mk.shadow, W, H, rb(0.025), 2);
+    mk.liner = blur(mk.liner, W, H, rb(0.004), 1); mk.wing = blur(mk.wing, W, H, rb(0.004), 1);
+    mk.lower = blur(mk.lower, W, H, rb(0.012), 2); mk.aegyo = blur(mk.aegyo, W, H, rb(0.012), 2);
+    mk.brow = blur(mk.brow, W, H, rb(0.008), 2); mk.gloss = blur(mk.gloss, W, H, rb(0.03), 3);
+    // keep eye colour makeup off the eyeball itself
+    for (let i = 0; i < n; i++) { const e = Math.min(1, A.eyeMask[i] * 1.5); mk.shadow[i] *= 1 - e; mk.lower[i] *= 1 - e; mk.aegyo[i] *= 1 - e; }
+    A.mk = mk;
+
+    // reference cheek area (the person's own skin colour), smile lines, nose and iris geometry
+    const cheek = polyMask(W, H, ctx => { ctx.fillStyle = '#fff'; for (const f of A.faces) for (const [c, u] of [[205, 117], [425, 346]]) blob(ctx, lerpP(f.p[c], f.p[u], 0.2), f.fw * 0.09, f.fw * 0.07); });
+    A.cheekRef = new Float32Array(n); for (let i = 0; i < n; i++) A.cheekRef[i] = cheek[i] * allowed[i] * (1 - under[i]);
+    const folds = polyMask(W, H, ctx => { ctx.strokeStyle = '#fff'; for (const f of A.faces) { line(ctx, f, [129, 203, 57], f.fw * 0.05); line(ctx, f, [358, 423, 287], f.fw * 0.05); } });
+    A.folds = blur(folds, W, H, rb(0.025), 2); for (let i = 0; i < n; i++) A.folds[i] *= allowed[i];
+    A.irises = A.faces[0].p.length >= 478 ? A.faces.flatMap(f => [[468, 469], [473, 474]].map(([c, e]) => ({ x: f.p[c].x, y: f.p[c].y, r: dist(f.p[c], f.p[e]) }))) : [];
+  }
+  A.skinBox = bboxOf(A.skin, W, H, 0.02, Math.round(fw * 0.12) + 4);
+  A.faceBox = allowed ? bboxOf(allowed, W, H, 0.02, Math.round(fw * 0.12) + 4) : null;
+
+  A.segRaw = person ? person.slice() : null;
+  if (person) {
+    if (face) for (let i = 0; i < n; i++) person[i] = Math.max(person[i], ss(0.2, 0.6, face[i]));
+    A.person = person;
+    A.personSoft = blur(person, W, H, Math.max(1, minD * 0.003), 2);
+    // a generously grown outline: background layer is filled inside it so no part of the person shows twice
+    A.personWide = blurFast(person, W, H, Math.max(2, minD * 0.008), 2);
+    let cx = 0, cy = 0, cw = 0;
+    for (let i = 0; i < n; i += 5) if (person[i] > 0.5) { cx += i % W; cy += (i / W) | 0; cw++; }
+    A.center = cw ? { x: cx / cw, y: cy / cw } : { x: W / 2, y: H / 2 };
+    let s = 0; for (let i = 0; i < n; i += 7) s += person[i] > 0.5 ? 1 : 0;
+    A.personFrac = s / Math.ceil(n / 7);
+  }
+
+  // the whole face as one region, forehead up to the hairline and ears included (the landmark outline stops
+  // short of the hairline): steps that treat face and body differently use this
+  if (seg) {
+    const fa = blur(seg.face, W, H, Math.max(2, Math.round(minD * 0.008)), 2);
+    if (A.faceSoft) for (let i = 0; i < n; i++) fa[i] = Math.max(fa[i], A.faceSoft[i]);
+    A.faceArea = fa;
+  } else A.faceArea = A.faceSoft || null;
+
+  // per-face measurements: skin brightness, texture, under-eye darkness
+  A.stats = {};
+  if (model) {
+    const lab = srgbToLab(...model.rgb);
+    A.stats.lab = lab;
+    A.stats.ita = Math.atan2(lab.L - 50, lab.b) * 180 / Math.PI;
+    A.stats.skinY = model.Y;
+    let rs = 0, rc = 0, ud = 0, uc = 0;
+    for (const f of A.faces) {
+      const bx = bboxOf(allowed, W, H, 0.5, 2); if (!bx) continue;
+      const yc = cropArr(Y, W, bx), al = cropArr(allowed, W, bx), ue = cropArr(under, W, bx);
+      const yb = blur(yc, bx.w, bx.h, Math.max(1, f.fw * 0.006), 1);
+      for (let i = 0; i < yc.length; i++) {
+        if (al[i] > 0.95) { rs += Math.abs(yc[i] - yb[i]); rc++; }
+        if (ue[i] > 0.5) { ud += yc[i]; uc++; }
+      }
+      break; // one crop covers all faces
+    }
+    A.stats.rough = rc ? rs / rc : 0.008;
+    A.stats.underGap = uc ? model.Y - ud / uc : 0;
+    A.faces.forEach(f => f.skinY = model.Y);
+  }
+
+  // how crisp the photo already is: mean fine-scale contrast
+  const Y1 = blur(Y, W, H, 1);
+  let sh = 0, shc = 0; for (let i = 0; i < n; i += 5) { sh += Math.abs(Y[i] - Y1[i]); shc++; }
+  A.stats.sharp = sh / shc;
+  // is the face already paler than the body (typical of camera beauty filters)?
+  if (A.cheekRef && A.faceArea) {
+    let fs = 0, fc = 0, bs = 0, bc = 0;
+    for (let i = 0; i < n; i += 3) {
+      if (A.cheekRef[i] > 0.5) { fs += Y[i]; fc++; }
+      else if (A.skin[i] > 0.5 && A.faceArea[i] < 0.05) { bs += Y[i]; bc++; }
+    }
+    A.stats.faceGap = fc > 30 && bc > 100 ? fs / fc - bs / bc : 0;
+    A.stats.faceY0 = fc > 30 ? fs / fc : null; A.stats.bodyY0 = bc > 100 ? bs / bc : null;
+  }
+
+  // global tone stats
+  const hist = new Uint32Array(256); let gr = 0, gg = 0, gb = 0, gc = 0;
+  for (let i = 0; i < n; i += 3) {
+    const r = base[i * 4], g = base[i * 4 + 1], b = base[i * 4 + 2];
+    hist[Math.round(Y[i] * 255)]++;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    if (mx > 40 && mx < 235 && (mx - mn) < 0.18 * mx) { gr += r; gg += g; gb += b; gc++; }
+  }
+  const tot = hist.reduce((a, b) => a + b, 0);
+  const pct = q => { let acc = 0; for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= q * tot) return i / 255; } return 1; };
+  const tone = { lo: pct(0.005), hi: pct(0.995), med: pct(0.5), gw: [1, 1, 1], gamma: 1 };
+  if (gc > n / 60) { const m = (gr + gg + gb) / 3; tone.gw = [m / gr, m / gg, m / gb]; tone.cast = [gr, gg, gb].map(v => v / gc); }
+  const refL = A.stats.skinY ?? tone.med;
+  const goal = A.stats.skinY != null ? 0.55 : 0.42;
+  if (refL < goal) { const target = Math.min(goal, refL * 1.16); tone.gamma = clamp(Math.log(target) / Math.log(Math.max(0.02, refL)), 0.72, 1); }
+  A.tone = tone;
+
+  // body
+  const P = A.pose, vis = k => P && P[k].v > 0.5 && P[k].y > 0 && P[k].y < H;
+  A.bodyOK = !!(P && A.person && vis(11) && vis(12) && vis(23) && vis(24) && P[23].y - P[11].y > minD * 0.08);
+  // feet must really be in the picture: confident keypoints that the outline model also sees as person
+  const seen = k => P && P[k].v > 0.85 && P[k].y < H * 0.97 && A.segRaw && A.segRaw[Math.round(P[k].y) * W + clamp(Math.round(P[k].x), 0, W - 1)] > 0.5;
+  A.legsOK = A.bodyOK && seen(25) && seen(26) && seen(27) && seen(28) && (P[27].y - P[23].y) > (P[23].y - P[11].y) * 0.9;
+
+  // automatic recommendation, derived from what was measured
+  const st = A.stats, nf = A.faces.length;
+  const auto = {
+    smooth: nf ? clamp(0.45 + ((st.rough ?? 0.016) - 0.012) * 30, 0.45, 0.8) : 0,
+    acne: nf ? 0.72 : 0,
+    white: A.hasSkin ? clamp(0.42 + (0.62 - (st.skinY ?? 0.5)) * 1.3, 0.35, 0.72) : 0,
+    dark: nf ? clamp(0.6 + (st.underGap ?? 0) * 6, 0.6, 0.95) : 0,
+    folds: nf ? 0.45 : 0,
+    unify: A.hasSkin ? 0.65 : 0,
+    fill: A.hasSkin ? clamp(0.35 + (0.6 - (st.skinY ?? 0.5)) * 1.5, 0.3, 0.7) : 0,
+    nose: nf ? 0.4 : 0,
+    iris: nf && A.irises && A.irises.length ? 0.6 : 0,
+    lips: nf ? 0.45 : 0,
+    clean: 0.7,
+    peach: model ? 0.6 : 0,
+    hair: A.person ? 0.5 : 0,
+    slim: nf ? 0.48 : 0,
+    eyes: nf ? 0.42 : 0,
+    body: A.bodyOK ? 0.55 : 0,
+    makeup: nf ? 0.7 : 0,
+    legs: A.legsOK ? 0.35 : 0,
+    detail: clamp(0.4 + (0.012 - st.sharp) * 25, 0.35, 0.7),
+    bg: 0, // background stays as shot unless the user asks for blur
+    tone: 0.6,
+    // 精修 (only 精致 turns these on)
+    contour: nf ? 0.55 : 0,
+    eyelight: nf && A.irisMask ? 0.55 : 0,
+    bgtone: A.person ? 0.45 : 0,
+    glow: 0.3,
+    vignette: 0.35,
+    grain: 0.15,
+  };
+  // what suits this photo: colour style from the light, backdrop that contrasts with the outfit
+  A.autoGrade = A.tone.cast && A.tone.cast[2] - A.tone.cast[0] > 14 ? 'clear' : 'cream';
+  if (A.person) {
+    let s = 0, c = 0;
+    for (let i = 0; i < n; i += 4) if (A.person[i] > 0.7 && A.skin[i] < 0.2) { s += Y[i]; c++; }
+    A.outfitY = c ? s / c : 0.5;
+    A.recBack = A.outfitY > 0.6 ? 'brown' : A.outfitY < 0.3 ? 'cream' : 'grey';
+  }
+  A.whiteAmt = model ? clamp(0.045 + (0.66 - st.skinY) * 0.12, 0.035, 0.075) : 0;
+  S.auto = auto; S.A = A;
+}
+
+function renderChips() {
+  const A = S.A, dis = A ? '' : 'disabled';
+  const rgb = c => `rgb(${c.map(v => Math.round(v * 255)).join(',')})`;
+  $('#lookChips').innerHTML = Object.entries(LOOKS).map(([k, l]) =>
+    `<button type="button" class="chip" data-look="${k}" aria-pressed="${S.look === k}" ${dis}>${l.n}</button>`).join('');
+  $('#mkChips').innerHTML = Object.entries(MAKEUPS).map(([k, mm]) =>
+    `<button type="button" class="chip" data-mk="${k}" aria-pressed="${S.mk === k}" ${A && (k === 'none' || A.mk) ? '' : 'disabled'}>${mm.n}</button>`).join('');
+  $('#gradeChips').innerHTML = Object.entries(GRADES).map(([k, g]) =>
+    `<button type="button" class="chip" data-grade="${k}" aria-pressed="${S.grade === k}" ${dis}>${g.n}${A && A.autoGrade === k ? '<sup>荐</sup>' : ''}</button>`).join('');
+  $('#atmoChips').innerHTML = Object.entries(ATMOS).map(([k, n]) =>
+    `<button type="button" class="chip" data-atmo="${k}" aria-pressed="${S.atmo === k}" ${dis}>${n}</button>`).join('');
+  $('#bgChips').innerHTML = Object.entries(BACKS).map(([k, b]) =>
+    `<button type="button" class="chip" data-back="${k}" aria-pressed="${S.back === k}" ${A && (k === 'orig' || A.personSoft) ? '' : 'disabled'}>${b.c ? `<i style="background:${rgb(b.c)}"></i>` : ''}${b.n}</button>`).join('');
+}
+document.addEventListener('click', async e => {
+  const l = e.target.closest('[data-look]'), g = e.target.closest('[data-grade]'), a = e.target.closest('[data-atmo]'), b = e.target.closest('[data-back]'), mkc = e.target.closest('[data-mk]');
+  if (l) {
+    const L = LOOKS[l.dataset.look]; S.look = l.dataset.look; S.grade = L.grade; S.atmo = L.atmo; S.mk = S.A.mk ? L.mk : 'none';
+    for (const [k, v] of Object.entries(L.set)) { const el = $('#p-' + k); if (el.disabled) continue; el.value = Math.round(v * 100); $('#o-' + k).textContent = el.value; S.P[k] = v; }
+  }
+  if (mkc) { S.mk = mkc.dataset.mk; S.look = null; }
+  if (g && g.dataset.grade === 'ref') { $('#refFile').click(); return; }
+  if (g) { S.grade = g.dataset.grade; S.look = null; }
+  if (a) { S.atmo = a.dataset.atmo; S.look = null; }
+  if (b) {
+    const k = b.dataset.back;
+    if (BACKS[k].img && !S.scenes[k]) {
+      toast('正在加载背景…');
+      try { S.scenes[k] = await loadScene(k); } catch { toast('背景图片没能加载'); return; }
+    }
+    S.back = k;
+  }
+  if (l || g || a || b || mkc) { renderChips(); schedule(); }
+});
+// "学它的色调": colour statistics of a reference photo the user likes
+async function loadRef(file) {
+  let bmp; try { bmp = await createImageBitmap(file); } catch { toast('参考图打不开'); return; }
+  const sc = Math.min(1, 512 / Math.max(bmp.width, bmp.height)), c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+  const cx = c.getContext('2d'); cx.drawImage(bmp, 0, 0, c.width, c.height);
+  const d = cx.getImageData(0, 0, c.width, c.height).data, n = c.width * c.height, Y = new Float32Array(n), Cb = new Float32Array(n), Cr = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255; Y[i] = 0.299 * r + 0.587 * g + 0.114 * b; Cb[i] = (b - Y[i]) * 0.564; Cr[i] = (r - Y[i]) * 0.713; }
+  S.refStats = [Y, Cb, Cr].map(stats);
+  S.grade = 'ref'; S.look = null; renderChips(); schedule(); toast('已学习参考图的色调');
+}
+function stats(a) { let s = 0, q = 0; for (let i = 0; i < a.length; i++) { s += a[i]; q += a[i] * a[i]; } const m = s / a.length; return [m, Math.sqrt(Math.max(1e-8, q / a.length - m * m))]; }
+$('#refFile').addEventListener('change', e => { if (e.target.files[0]) loadRef(e.target.files[0]); e.target.value = ''; });
+
+// Douyin-camera-style beauty at a given strength (自然 = 1). Based on common Douyin 美化 settings
+// (磨皮 50, 美白 50, 瘦脸 40, 大眼 30, 清晰 70), plus dark circles and evening out skin tone.
+function douyinValues(m) {
+  const nf = S.A && S.A.faces.length ? 1 : 0, p = x => clamp(x, 0, 1);
+  return {
+    smooth: p(0.55 * m) * nf, acne: p(0.55 * m) * nf, white: S.auto.white ? p(0.4 * m) : 0, dark: p(0.45 * m) * nf, folds: p(0.25 * m) * nf,
+    slim: p(0.4 * m) * nf, eyes: p(0.33 * m) * nf, nose: p(0.15 * (m - 0.6) / 0.75) * nf, detail: p(0.56 * m), tone: 0.3,
+    unify: S.auto.unify ? p(0.4 * m) : 0, fill: S.auto.fill ? p(0.2 * m) : 0,
+    iris: 0, lips: 0, body: 0, legs: 0, bg: 0, contour: 0, eyelight: 0, bgtone: 0, glow: 0, vignette: 0, grain: 0, makeup: 0, clean: 0, peach: 0, hair: 0,
+  };
+}
+
+function applyPreset(i) {
+  S.preset = i; S.fine = !!PRESETS[i].fine; prefs.preset = i; savePrefs();
+  document.querySelectorAll('[data-preset]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.preset === i)));
+  if (!S.A) return;
+  const v = douyinValues(PRESETS[i].m);
+  setSliders(v, douyinValues(1));
+  S.grade = 'none'; S.back = 'orig'; S.atmo = 'none'; S.look = null; S.mk = 'none';
+  renderChips();
+  $('#resetauto').disabled = i === 1;
+  schedule();
+}
+
+// ---------- rendering pipeline ----------
+function toneLUT(t) {
+  const T = S.A.tone;
+  const lo = Math.min(T.lo * 0.7 * t, 0.05), hi = Math.max(1 - (1 - T.hi) * 0.7 * t, 0.92);
+  const gamma = 1 + (T.gamma - 1) * t;
+  return [0, 1, 2].map(c => {
+    const g = clamp(1 + (T.gw[c] - 1) * 0.4 * t, 0.95, 1.05), lut = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const v0 = clamp(((i / 255 - lo) / (hi - lo)) * g, 0, 1);
+      // brighten mid-tones but keep blacks black (a plain gamma lift turns dark hair grey)
+      const v = v0 + (Math.pow(v0, gamma) - v0) * ss(0.12, 0.45, v0);
+      lut[i] = lerp(v, v * v * (3 - 2 * v), 0.18 * t); // light S-curve keeps the lift from looking hazy
+    }
+    return lut;
+  });
+}
+
+// keeps spot-shaped components (pimples, red marks), drops line-shaped ones (wrinkles, hair) and big ones
+function filterBlobs(mask, w, h, thr, maxR) {
+  const lab = new Int32Array(w * h).fill(-1); let count = 0; const st = [];
+  for (let i = 0; i < mask.length; i++) {
+    if (lab[i] !== -1 || mask[i] <= thr) continue;
+    const px = []; st.push(i); lab[i] = 0;
+    let x0 = w, y0 = h, x1 = 0, y1 = 0;
+    while (st.length) {
+      const j = st.pop(), x = j % w, y = (j - x) / w; px.push(j);
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (const k of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (k >= 0 && lab[k] === -1 && mask[k] > thr) { lab[k] = 0; st.push(k); }
+    }
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1, long = Math.max(bw, bh), fill = px.length / (bw * bh);
+    const ok = px.length >= 3 && long <= maxR * 2 && long / Math.min(bw, bh) < 2.6 && fill > 0.35;
+    if (ok) count++; else for (const j of px) mask[j] = 0;
+  }
+  // weak pixels around removed components are cleared too
+  for (let i = 0; i < mask.length; i++) if (lab[i] === -1 && mask[i] > 0) mask[i] = 0;
+  return count;
+}
+// Large blurs are done at full resolution. (The box blur costs the same at any radius; the old
+// "shrink, blur, enlarge" shortcut left a block grid that showed up as mosaic on hair, arms and legs.)
+function blurFast(src, w, h, r, passes = 1) {
+  return blur(src, w, h, r, Math.max(passes, 2));
+}
+
+function blemishPass(ch, al, w, h, rB, rs, thr, keep, amt) {
+  const n = w * h, L = new Float32Array(n), Cr = new Float32Array(n);
+  for (let i = 0; i < n; i++) { L[i] = 0.299 * ch[0][i] + 0.587 * ch[1][i] + 0.114 * ch[2][i]; Cr[i] = 0.5 * ch[0][i] - 0.4187 * ch[1][i] - 0.0813 * ch[2][i]; }
+  const Lb = blur(L, w, h, rB, 2), Ls = blur(L, w, h, rs), Cb = blur(Cr, w, h, rB, 2), Cs = blur(Cr, w, h, rs);
+  const bm = new Float32Array(n), kept = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    if (al[i] < 0.05) continue;
+    const D = Lb[i] - Ls[i], red = Cs[i] - Cb[i];
+    if (D > 0.3) continue;
+    const v = ss(thr, thr * 1.6, D + 1.4 * Math.max(0, red)) * al[i];
+    if (keep && red < 0.008 && D > 0) kept[i] = v; else bm[i] = v;
+  }
+  const fixed = filterBlobs(bm, w, h, 0.3, rB * 1.2);
+  const keptN = keep ? filterBlobs(kept, w, h, 0.3, rB * 1.2) : 0;
+  const bf = blur(bm, w, h, rs + 1), wt = new Float32Array(n);
+  // patch colour comes from nearby clean skin only (not hair, brows or shadows beside the face)
+  for (let i = 0; i < n; i++) { bf[i] = Math.min(1, bf[i] * 2.4); wt[i] = (1 - Math.min(1, bf[i] * 2)) * (0.02 + al[i]); }
+  const den = blur(wt, w, h, rB, 2);
+  for (const c of ch) {
+    const cw = new Float32Array(n); for (let i = 0; i < n; i++) cw[i] = c[i] * wt[i];
+    const num = blur(cw, w, h, rB, 2);
+    for (let i = 0; i < n; i++) if (bf[i] > 0.001 && den[i] > 1e-3) c[i] += bf[i] * amt * (num[i] / den[i] - c[i]);
+  }
+  return [fixed, keptN];
+}
+
+function faceStage(R, G, B, P, log) {
+  const { W, A } = S, bx = A.faceBox;
+  if (!bx) return;
+  const w = bx.w, h = bx.h, n = w * h, fw = A.fw;
+  const ch = [cropArr(R, W, bx), cropArr(G, W, bx), cropArr(B, W, bx)];
+  const lum = () => { const L = new Float32Array(n); for (let i = 0; i < n; i++) L[i] = 0.299 * ch[0][i] + 0.587 * ch[1][i] + 0.114 * ch[2][i]; return L; };
+  const rB = Math.max(3, Math.round(fw * 0.03)), rs = Math.max(1, Math.round(fw * 0.0035));
+
+  // 1) blemishes: round spots darker / redder than the surrounding skin.
+  //    精致 runs a second, coarser pass for larger marks.
+  if (P.acne > 0.01) {
+    const al = cropArr(A.allowed, W, bx), keep = $('#keepMoles').checked;
+    const thr = 0.07 - 0.035 * P.acne, amt = Math.min(1, P.acne * 1.6);
+    let [fixed, kept] = blemishPass(ch, al, w, h, rB, rs, thr, keep, amt);
+    if (S.fine) {
+      const [f2, k2] = blemishPass(ch, al, w, h, rB * 2, Math.max(1, Math.round(rs * 2.5)), thr * 0.9, keep, amt);
+      fixed += f2; kept = Math.max(kept, k2);
+    }
+    log.fixed = fixed; log.kept = kept;
+  }
+
+  // 2) dark circles and smile lines: bring the area's low-frequency colour and brightness to the person's
+  //    own cheek colour (fixes both darkness and the purple / brown cast), keeping the fine skin texture
+  const cheekFix = (mask, amt) => {
+    const cr = cropArr(A.cheekRef, W, bx); let sw = 0; const ref = [0, 0, 0];
+    for (let i = 0; i < n; i++) { const t = cr[i]; if (t < 0.5) continue; sw += t; for (let c = 0; c < 3; c++) ref[c] += ch[c][i] * t; }
+    if (sw < 20) return;
+    for (let c = 0; c < 3; c++) ref[c] /= sw;
+    const refL = 0.299 * ref[0] + 0.587 * ref[1] + 0.114 * ref[2], rr = Math.max(2, Math.round(fw * 0.03));
+    // local average over skin only, so lashes, brows and nostrils don't leave bright halos
+    const al = cropArr(A.allowed, W, bx), den = blur(al, w, h, rr, 2);
+    const base = ch.map(c => { const v = new Float32Array(n); for (let i = 0; i < n; i++) v[i] = c[i] * al[i]; const b = blur(v, w, h, rr, 2); for (let i = 0; i < n; i++) b[i] = den[i] > 1e-3 ? b[i] / den[i] : c[i]; return b; });
+    for (let i = 0; i < n; i++) {
+      const t = mask[i] * amt; if (t < 0.003) continue;
+      const bl = 0.299 * base[0][i] + 0.587 * base[1][i] + 0.114 * base[2][i];
+      const lift = bl < refL ? 1 : 0.3; // never darken an area that's already brighter
+      for (let c = 0; c < 3; c++) ch[c][i] += t * lift * (ref[c] - base[c][i]);
+    }
+  };
+  if (P.dark > 0.01 && A.cheekRef) cheekFix(cropArr(A.under, W, bx), Math.min(1, P.dark * 1.05));
+  if (P.folds > 0.01 && A.folds) cheekFix(cropArr(A.folds, W, bx), Math.min(1, P.folds * 0.8));
+  for (const c of ch) for (let i = 0; i < n; i++) c[i] = clamp(c[i], 0, 1);
+  uncropArr(R, W, bx, ch[0]); uncropArr(G, W, bx, ch[1]); uncropArr(B, W, bx, ch[2]);
+}
+
+function skinStage(R, G, B, P, log) {
+  const { W, A } = S, bx = A.skinBox;
+  if (!bx) return;
+  const w = bx.w, h = bx.h, n = w * h, fw = A.fw;
+  const ch = [cropArr(R, W, bx), cropArr(G, W, bx), cropArr(B, W, bx)];
+  // face keeps its precise mask; everywhere else (arms, legs, chest) the smoother mask avoids patchy smoothing
+  const m = cropArr(A.skin, W, bx);
+  if (A.skinSoft) {
+    const ms = cropArr(A.skinSoft, W, bx), fs = A.faceArea ? cropArr(A.faceArea, W, bx) : null;
+    // the face gets the full smoothing; body skin (arms, legs, chest) only a little, evenly, so its natural shading never turns blotchy
+    for (let i = 0; i < m.length; i++) { const f = fs ? fs[i] : 0; m[i] = f * m[i] + (1 - f) * ms[i] * 0.2; }
+  }
+  const lum = () => { const L = new Float32Array(n); for (let i = 0; i < n; i++) L[i] = 0.299 * ch[0][i] + 0.587 * ch[1][i] + 0.114 * ch[2][i]; return L; };
+
+  // 3) smoothing: edge-aware guided filter on brightness, gentle blur on colour,
+  //    then the finest pore texture is put back so skin doesn't turn to plastic
+  if (P.smooth > 0.01) {
+    const rg = Math.max(2, Math.round(fw * 0.022)), eps = Math.pow(0.016 + 0.045 * P.smooth, 2);
+    // 精致 goes for the smoother "porcelain" finish of AI retouch apps, keeping less pore texture
+    // 精致 keeps less pore texture; the whole image is cleaned to match (cleanStage), so the style stays consistent
+    const keepTex = $('#keepTexture').checked ? (S.fine ? 0.3 : 0.55) : 0.2, k0 = Math.min(1, P.smooth * 1.15);
+    const L = lum(), Cb = new Float32Array(n), Cr = new Float32Array(n);
+    for (let i = 0; i < n; i++) { Cb[i] = (ch[2][i] - L[i]) * 0.564; Cr[i] = (ch[0][i] - L[i]) * 0.713; }
+    const rt = Math.max(1, Math.round(fw * 0.004)); // pore scale follows the face size, so preview and HD export match
+    const q = guided(L, w, h, rg, eps), fq = blur(q, w, h, rt), f = blur(L, w, h, rt), Cbs = blur(Cb, w, h, rg), Crs = blur(Cr, w, h, rg);
+    for (let i = 0; i < n; i++) {
+      const k = m[i] * k0; if (k < 0.001) continue;
+      // smooth base without its own fine detail, plus a share of the original pores
+      const y = L[i] + k * (fq[i] + keepTex * (L[i] - f[i]) - L[i]);
+      const cb = Cb[i] + k * 0.7 * (Cbs[i] - Cb[i]), cr = Cr[i] + k * 0.7 * (Crs[i] - Cr[i]);
+      ch[0][i] = y + 1.402 * cr; ch[1][i] = y - 0.344136 * cb - 0.714136 * cr; ch[2][i] = y + 1.772 * cb;
+    }
+  }
+
+  // 精致 only: even out mid-sized unevenness (bumps, blotchy shadows, marks) while keeping pores
+  // and the face's real shape shading, even out red patches, and tone down oily shine
+  if (S.fine && P.smooth > 0.01) {
+    const al = A.allowed ? cropArr(A.allowed, W, bx) : new Float32Array(n);
+    const L = lum(), Cb = new Float32Array(n), Cr = new Float32Array(n);
+    for (let i = 0; i < n; i++) { Cb[i] = (ch[2][i] - L[i]) * 0.564; Cr[i] = (ch[0][i] - L[i]) * 0.713; }
+    const r1 = Math.max(1, Math.round(fw * 0.012)), r2 = Math.max(r1 + 2, Math.round(fw * 0.05)), rc = Math.max(3, Math.round(fw * 0.06));
+    // averages taken over skin only, so brows, hair and lips don't leak dark or coloured halos into the skin
+    const mblur = (v, r, fast) => {
+      const num = new Float32Array(n); for (let i = 0; i < n; i++) num[i] = v[i] * m[i];
+      const f = fast ? blurFast : blur, a = f(num, w, h, r, 2), b = f(m, w, h, r, 2);
+      for (let i = 0; i < n; i++) a[i] = b[i] > 1e-3 ? a[i] / b[i] : v[i];
+      return a;
+    };
+    const L1 = mblur(L, r1), L2 = mblur(L, r2, true), Cbl = mblur(Cb, rc, true), Crl = mblur(Cr, rc, true);
+    const ke = 0.5 * Math.min(1, P.smooth * 1.2);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, mm = m[i]; if (mm < 0.01) continue;
+      const fa = al[i];
+      const gx = L1[y * w + Math.min(w - 1, x + r1)] - L1[y * w + Math.max(0, x - r1)];
+      const gy = L1[Math.min(h - 1, y + r1) * w + x] - L1[Math.max(0, y - r1) * w + x];
+      const protect = 1 - ss(0.035, 0.09, Math.hypot(gx, gy)); // nose sides, cheekbones keep their shading
+      const mid = L1[i] - L2[i]; // dark marks are lifted fully, bright bumps only a little, so the face keeps its 3D shape
+      let yv = L[i] - ke * fa * protect * (mid > 0 ? 0.35 * mid : mid);
+      const hl = L[i] - L2[i];
+      if (hl > 0.06 && L[i] > 0.6) yv -= 0.35 * fa * (hl - 0.06); // soften only strong oily shine, keep the natural highlight
+      const cb = Cb[i] + 0.3 * mm * (Cbl[i] - Cb[i]), cr = Cr[i] + 0.3 * mm * (Crl[i] - Cr[i]);
+      ch[0][i] = yv + 1.402 * cr; ch[1][i] = yv - 0.344136 * cb - 0.714136 * cr; ch[2][i] = yv + 1.772 * cb;
+    }
+  }
+
+  // (brightening now happens for all skin at once in toneStage(), the way retouchers use the HSL orange channel)
+
+  // 5) light shaping (dodge & burn): lift forehead, nose bridge, under-eye and chin; deepen under the
+  //    cheekbones and along the jaw. Brightness only, so skin colour and features stay the person's own.
+  if (P.contour > 0.01 && A.contourHi) {
+    const hi = cropArr(A.contourHi, W, bx), sh = cropArr(A.contourSh, W, bx), kh = 0.07 * P.contour, ks = 0.06 * P.contour;
+    const jw = S.fine && A.contourJaw ? cropArr(A.contourJaw, W, bx) : null, kj = 0.1 * P.contour;
+    for (let i = 0; i < n; i++) {
+      const f = 1 + kh * hi[i] - ks * sh[i] - (jw ? kj * jw[i] : 0);
+      if (f === 1) continue;
+      for (const c of ch) c[i] *= f;
+    }
+  }
+  for (const c of ch) for (let i = 0; i < n; i++) c[i] = clamp(c[i], 0, 1);
+  uncropArr(R, W, bx, ch[0]); uncropArr(G, W, bx, ch[1]); uncropArr(B, W, bx, ch[2]);
+}
+
+// virtual makeup: tints follow the skin's own light and texture, so it reads as makeup rather than paint
+function makeupStage(R, G, B, P) {
+  const M = MAKEUPS[S.mk], { W, A } = S, bx = A.faceBox;
+  if (!M || !M.lips || !A.mk || !bx || !(P.makeup > 0.01)) return;
+  const k = P.makeup, w = bx.w, h = bx.h, n = w * h;
+  const ch = [cropArr(R, W, bx), cropArr(G, W, bx), cropArr(B, W, bx)];
+  const m = {}; for (const key in A.mk) m[key] = cropArr(A.mk[key], W, bx);
+  const mult = (mask, col, a) => { if (!(a > 0)) return; for (let i = 0; i < n; i++) { const t = mask[i] * a * k; if (t < 0.003) continue; for (let c = 0; c < 3; c++) ch[c][i] *= 1 - t * (1 - col[c]); } };
+  const lift = (mask, a, col = [1, 1, 1]) => { if (!(a > 0)) return; for (let i = 0; i < n; i++) { const t = mask[i] * a * k; if (t < 0.003) continue; for (let c = 0; c < 3; c++) ch[c][i] = 1 - (1 - ch[c][i]) * (1 - t * col[c]); } };
+  // eyes: shadow first, then liner and lower smudge on top
+  mult(m.shadow, M.shadow[0], M.shadow[1]);
+  if (M.lower) mult(m.lower, M.shadow[0], M.lower);
+  if (M.lash) mult(m.lower, M.lash[0], M.lash[1]); // soft lower lash line
+  mult(m.liner, M.liner[0], M.liner[1]);
+  if (M.liner[2]) mult(m.wing, M.liner[0], M.liner[1]);
+  mult(m.brow, M.brow[0], M.brow[1]);
+  if (M.aegyo) lift(m.aegyo, M.aegyo * 0.35, [1, 0.94, 0.92]);
+  mult(m.blush, M.blush[0], M.blush[1]);
+  // lips: recolour keeping the lip texture (light/shadow), gradient = stronger towards the inner lip
+  const [lc, la, lstyle] = M.lips, lcl = 0.299 * lc[0] + 0.587 * lc[1] + 0.114 * lc[2];
+  for (let i = 0; i < n; i++) {
+    let t = m.lip[i]; if (t < 0.003) continue;
+    if (lstyle === 'gradient') t *= 0.35 + 0.65 * ss(0.05, 0.5, m.lipCore[i]);
+    t *= la * k;
+    const l = 0.299 * ch[0][i] + 0.587 * ch[1][i] + 0.114 * ch[2][i], tl = lerp(l, lcl, 0.35);
+    for (let c = 0; c < 3; c++) ch[c][i] = lerp(ch[c][i], clamp(lc[c] * tl / lcl, 0, 1), t);
+  }
+  // dewy highlights ("水光"): soft sheen plus a brighter core
+  if (M.gloss) for (let i = 0; i < n; i++) {
+    const g = m.gloss[i] * M.gloss * k; if (g < 0.003) continue;
+    const l = 0.299 * ch[0][i] + 0.587 * ch[1][i] + 0.114 * ch[2][i], s = 0.35 * g * (0.4 + l);
+    for (let c = 0; c < 3; c++) ch[c][i] = 1 - (1 - ch[c][i]) * (1 - s);
+  }
+  for (const c of ch) for (let i = 0; i < n; i++) c[i] = clamp(c[i], 0, 1);
+  uncropArr(R, W, bx, ch[0]); uncropArr(G, W, bx, ch[1]); uncropArr(B, W, bx, ch[2]);
+}
+
+// 美瞳: a defined dark limbal ring, deeper iris colour and a soft catchlight, inside the visible eye only
+function irisStage(R, G, B, P) {
+  const { W, H, A } = S;
+  if (!(P.iris > 0.01) || !A.irises || !A.irises.length || !A.eyeMask) return;
+  const k = P.iris;
+  for (const ir of A.irises) {
+    const r = ir.r, x0 = Math.max(0, Math.floor(ir.x - r * 1.3)), x1 = Math.min(W - 1, Math.ceil(ir.x + r * 1.3));
+    const y0 = Math.max(0, Math.floor(ir.y - r * 1.3)), y1 = Math.min(H - 1, Math.ceil(ir.y + r * 1.3));
+    const hx = ir.x - r * 0.3, hy = ir.y - r * 0.35, hr = r * 0.14;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = y * W + x, vis = Math.min(1, A.eyeMask[i] * 1.4); if (vis < 0.02) continue;
+      const t = Math.hypot(x - ir.x, y - ir.y) / r;
+      const ring = ss(0.62, 0.92, t) * (1 - ss(1.0, 1.18, t)), inside = 1 - ss(0.9, 1.05, t);
+      const dk = 1 - vis * k * (0.35 * ring + 0.1 * inside);
+      R[i] *= dk; G[i] *= dk; B[i] *= dk;
+      // a small, soft catchlight, kept faint so the eye still looks real
+      const hl = (1 - ss(0.2, 1, Math.hypot(x - hx, y - hy) / hr)) * vis * k * 0.28;
+      if (hl > 0) { R[i] = 1 - (1 - R[i]) * (1 - hl); G[i] = 1 - (1 - G[i]) * (1 - hl); B[i] = 1 - (1 - B[i]) * (1 - hl); }
+    }
+  }
+}
+
+// ---------- skin tone: fill light, whitening, one even skin colour ----------
+// All of it is worked out on a small copy of the photo and then applied to the full-size photo as a smooth
+// brightness-and-colour gain on skin only (like a retoucher's adjustment layer). Fine texture, pores and
+// edges are never touched, so it cannot produce lumps or mosaic, and it costs the same at any photo size.
+//  1) 人像补光: lifts dim skin.
+//  2) 提亮美白: one notch brighter, relative to the person's own skin tone.
+//  3) 肤色统一: every separate area of bare skin (neck and chest, a shoulder, a hand, the legs...) is brought
+//     to the face's colour as a whole, so the light and shade inside each area (muscles, the roundness of a
+//     limb) stays; then colour patches and soft shadow patches inside an area are evened out gently.
+function toneStage(R, G, B, P, log) {
+  const { W, H, A } = S;
+  if (!A.hasSkin || !(P.white > 0.01 || P.unify > 0.01 || P.fill > 0.01)) return;
+  const sc = Math.min(1, 560 / Math.max(W, H)), w = Math.max(8, Math.round(W * sc)), h = Math.max(8, Math.round(H * sc)), m = w * h, md = Math.min(w, h);
+  if (!A.lr || A.lr.w !== w || A.lr.h !== h) A.lr = { w, h, sk: downscale(A.skinApply, W, H, w, h), face: A.faceArea ? downscale(A.faceArea, W, H, w, h) : new Float32Array(m), cheek: A.cheekRef ? downscale(A.cheekRef, W, H, w, h) : null };
+  const { sk, face, cheek } = A.lr, sx = w / W, sy = h / H;
+  const r0 = downscale(R, W, H, w, h), g0 = downscale(G, W, H, w, h), b0 = downscale(B, W, H, w, h);
+  const r = r0.slice(), g = g0.slice(), b = b0.slice();
+  const lum = i => 0.299 * r[i] + 0.587 * g[i] + 0.114 * b[i];
+  const rad = f => Math.max(1, Math.round(md * f));
+  const dens = new Map();
+  // local average over skin only (clothes, hair and background never leak in)
+  const navg = (v, rr) => {
+    if (!dens.has(rr)) dens.set(rr, blur(sk, w, h, rr, 2));
+    const d = dens.get(rr), num = new Float32Array(m);
+    for (let i = 0; i < m; i++) num[i] = v[i] * sk[i];
+    const a = blur(num, w, h, rr, 2);
+    for (let i = 0; i < m; i++) a[i] = d[i] > 1e-3 ? a[i] / d[i] : v[i];
+    return a;
+  };
+  const lumArr = () => { const L = new Float32Array(m); for (let i = 0; i < m; i++) L[i] = lum(i); return L; };
+
+  // how bright the body and the face are to begin with
+  let bs = 0, bw = 0, fsum = 0, fw_ = 0;
+  for (let i = 0; i < m; i++) {
+    const l = lum(i);
+    if (cheek && cheek[i] > 0.5) { fsum += l; fw_++; }
+    const wb = sk[i] * (1 - face[i]); if (wb > 0.05) { bs += l * wb; bw += wb; }
+  }
+  const faceL0 = fw_ > 3 ? fsum / fw_ : null, bodyL = bw > 8 ? bs / bw : (faceL0 ?? 0.5), faceL = faceL0 ?? bodyL;
+  // a face already paler than the body (camera beauty filter, foundation) gets no extra light or whitening
+  const pale = ss(0, 0.08, faceL - bodyL);
+
+  if (P.fill > 0.01) {
+    const f = 0.32 * P.fill, Lb = navg(lumArr(), rad(0.012));
+    for (let i = 0; i < m; i++) {
+      if (sk[i] < 0.02) continue;
+      const lb = Lb[i], lift = f * (1 - 0.85 * face[i] * pale) * (1 - lb) * (1 - ss(0.2, 0.85, lb));
+      if (lift < 0.001) continue;
+      const s = Math.min(1.3, 1 + lift / Math.max(0.08, lb));
+      r[i] *= s; g[i] *= s; b[i] *= s;
+    }
+  }
+
+  if (P.white > 0.01) {
+    // one notch brighter at most, and never more than about a tenth of the person's own skin brightness:
+    // deep skin tones stay deep, light ones never turn chalky
+    const curve = Math.max(0.1, 4 * bodyL * (1 - bodyL));
+    const a = Math.min(P.white * clamp((0.74 - bodyL) * 0.42, 0.03, 0.14), 0.05 / curve, 0.11 * bodyL / curve);
+    const deep = ss(0.25, 0.5, bodyL); // deeper skin keeps its full colour (easing saturation there looks ashy)
+    for (let i = 0; i < m; i++) {
+      const wt = Math.min(1, sk[i] * 1.2) * (1 - 0.9 * pale * face[i]); if (wt < 0.01) continue;
+      const l = lum(i), ln = l + a * wt * 4 * l * (1 - l), s = ln / Math.max(0.02, l), ds = 1 - 0.07 * P.white * wt * deep;
+      r[i] = ln + (r[i] * s - ln) * ds; g[i] = ln + (g[i] * s - ln) * ds * (1 - 0.012 * wt * P.white * deep); b[i] = ln + (b[i] * s - ln) * ds;
+    }
+    log.dL = a * 100 * 0.9;
+  }
+
+  if (P.unify > 0.01) {
+    const k = Math.min(1, 0.55 + P.unify);
+    // target colour: each face's own cheek colour as it is now. A face that was whitened on its own
+    // (paler than the body) reads cool and greyish next to skin, so its target is a touch warmer.
+    const faces = [];
+    for (const f of A.faces) {
+      let s = [0, 0, 0], c = 0;
+      for (const [ck, u] of [[205, 117], [425, 346]]) {
+        const cx = lerp(f.p[ck].x, f.p[u].x, 0.2) * sx, cy = lerp(f.p[ck].y, f.p[u].y, 0.2) * sy, rx = Math.max(1.5, f.fw * 0.09 * sx), ry = Math.max(1.5, f.fw * 0.07 * sy);
+        for (let y = Math.max(0, Math.floor(cy - ry)); y <= Math.min(h - 1, Math.ceil(cy + ry)); y++) for (let x = Math.max(0, Math.floor(cx - rx)); x <= Math.min(w - 1, Math.ceil(cx + rx)); x++) {
+          const i = y * w + x; if (sk[i] < 0.6 || ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 > 1) continue;
+          s[0] += r[i]; s[1] += g[i]; s[2] += b[i]; c++;
+        }
+      }
+      if (c < 4) continue;
+      // the cheeks are the brightest, rosiest part of a face; a neck or arm brought all the way to them would
+      // outshine the chin above it. So the target sits halfway between the cheeks and the face as a whole.
+      let a = [0, 0, 0], ac = 0;
+      {
+        const cx = f.p[1].x * sx, cy = f.p[1].y * sy, rr = f.fw * 0.8 * sx, x0 = Math.max(0, Math.floor(cx - rr)), x1 = Math.min(w - 1, Math.ceil(cx + rr)), y0 = Math.max(0, Math.floor(cy - rr * 1.2)), y1 = Math.min(h - 1, Math.ceil(cy + rr * 1.2));
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * w + x, wt = sk[i] * face[i]; if (wt < 0.5) continue; a[0] += r[i] * wt; a[1] += g[i] * wt; a[2] += b[i] * wt; ac += wt; }
+      }
+      if (ac > c) for (let q = 0; q < 3; q++) s[q] = (s[q] / c + a[q] / ac) / 2 * c;
+      const fr = s[0] / c, fg = s[1] / c, fb = s[2] / c, fy = 0.299 * fr + 0.587 * fg + 0.114 * fb;
+      const tcb = (fb - fy) * 0.564 - 0.012 * pale, tcr = (fr - fy) * 0.713 + 0.003 * pale;
+      faces.push({ x: f.p[1].x * sx, y: f.p[1].y * sy, fw: Math.max(2, f.fw * sx), t: [fy + 1.402 * tcr, fy - 0.344136 * tcb - 0.714136 * tcr, fy + 1.772 * tcb] });
+    }
+    // per pixel: the colour of the nearest face, and how plausibly this skin belongs to that person
+    // (within reach of the face), so one person's colour is not pushed onto somebody else
+    const Tr = new Float32Array(m), Tg = new Float32Array(m), Tb = new Float32Array(m), reach = new Float32Array(m);
+    if (faces.length) {
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x; if (sk[i] < 0.02) continue;
+        let ws = 0, tr = 0, tg = 0, tb = 0, rc = 0;
+        for (const f of faces) {
+          const dx = (x - f.x) / f.fw, dy = (y - f.y) / f.fw;
+          const rf = 1 - ss(0.8, 1.2, Math.hypot(dx / 5, dy / (dy > 0 ? 11 : 3)));
+          const wt = (0.02 + rf) / (0.5 + dx * dx + dy * dy);
+          ws += wt; tr += wt * f.t[0]; tg += wt * f.t[1]; tb += wt * f.t[2]; if (rf > rc) rc = rf;
+        }
+        Tr[i] = tr / ws; Tg[i] = tg / ws; Tb[i] = tb / ws; reach[i] = rc;
+      }
+    } else {
+      // no face in view (back view, cropped): even the skin out towards its own average colour
+      let s = [0, 0, 0], c = 0;
+      for (let i = 0; i < m; i++) { const wt = sk[i]; if (wt < 0.3) continue; s[0] += r[i] * wt; s[1] += g[i] * wt; s[2] += b[i] * wt; c += wt; }
+      if (c > 8) { Tr.fill(s[0] / c); Tg.fill(s[1] / c); Tb.fill(s[2] / c); reach.fill(1); }
+    }
+    const tY = i => 0.299 * Tr[i] + 0.587 * Tg[i] + 0.114 * Tb[i];
+
+    // a) each separate skin area moves to the target as a whole
+    const lab = new Int32Array(m).fill(-1), comps = [], st = [];
+    for (let i0 = 0; i0 < m; i0++) {
+      if (lab[i0] !== -1 || sk[i0] < 0.35) continue;
+      const id = comps.length, c = { s: [0, 0, 0], t: [0, 0, 0], wt: 0, rc: 0 }; lab[i0] = id; st.push(i0);
+      while (st.length) {
+        const j = st.pop(), x = j % w, y = (j - x) / w, wt = sk[j] * (1 - face[j]);
+        c.s[0] += r[j] * wt; c.s[1] += g[j] * wt; c.s[2] += b[j] * wt; c.t[0] += Tr[j] * wt; c.t[1] += Tg[j] * wt; c.t[2] += Tb[j] * wt; c.wt += wt; c.rc += reach[j] * wt;
+        for (const q of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (q >= 0 && lab[q] === -1 && sk[q] >= 0.35) { lab[q] = id; st.push(q); }
+      }
+      comps.push(c);
+    }
+    for (const c of comps) {
+      c.g = [1, 1, 1];
+      if (c.wt < 3 || c.t[0] <= 0) continue;
+      const my = 0.299 * c.s[0] + 0.587 * c.s[1] + 0.114 * c.s[2], ty = 0.299 * c.t[0] + 0.587 * c.t[1] + 0.114 * c.t[2];
+      // very different brightness means deep shadow or somebody else: move less
+      const conf = (c.rc / c.wt) * ss(0.3, 0.5, my / ty) * k;
+      // colour all the way, brightness most of the way (an area in shade may stay a little darker than the face)
+      const gl = clamp(ty / Math.max(1e-4, my), 0.85, 1.8), gl2 = 1 + (gl - 1) * 0.8;
+      for (let ch = 0; ch < 3; ch++) c.g[ch] = 1 + (clamp(c.t[ch] / Math.max(1e-4, c.s[ch]) / gl * gl2, 0.8, 1.9) - 1) * conf;
+    }
+    // soft edges of an area take the gain of the area they border
+    const gR = new Float32Array(m), gG = new Float32Array(m), gB = new Float32Array(m), gw = new Float32Array(m);
+    for (let i = 0; i < m; i++) { const id = lab[i]; if (id < 0) continue; gR[i] = comps[id].g[0]; gG[i] = comps[id].g[1]; gB[i] = comps[id].g[2]; gw[i] = 1; }
+    if (comps.length) pushPull([gR, gG, gB], gw, w, h);
+    for (let i = 0; i < m; i++) {
+      if (sk[i] < 0.02 || !(gR[i] > 0)) continue;
+      const f = 1 - face[i];
+      r[i] *= 1 + (gR[i] - 1) * f; g[i] *= 1 + (gG[i] - 1) * f; b[i] *= 1 + (gB[i] - 1) * f;
+    }
+
+    // b) inside each area: the same colour everywhere (hue and saturation of the target, at the pixel's own
+    //    brightness), a gentle evening of large-scale brightness, and soft shadow patches lifted part of the way
+    {
+      const lowR = navg(r, rad(0.05)), lowG = navg(g, rad(0.05)), lowB = navg(b, rad(0.05));
+      for (let i = 0; i < m; i++) {
+        if (sk[i] < 0.02) continue;
+        const ly = 0.299 * lowR[i] + 0.587 * lowG[i] + 0.114 * lowB[i], ty = tY(i); if (ly < 0.02 || ty < 0.02) continue;
+        const kc = k * reach[i] * ss(0.3, 0.5, ly / ty) * (1 - face[i]); if (kc < 0.01) continue;
+        const y0 = lum(i);
+        r[i] *= 1 + (clamp((Tr[i] / ty) / (lowR[i] / ly), 0.8, 1.25) - 1) * kc;
+        g[i] *= 1 + (clamp((Tg[i] / ty) / (lowG[i] / ly), 0.8, 1.25) - 1) * kc;
+        b[i] *= 1 + (clamp((Tb[i] / ty) / (lowB[i] / ly), 0.8, 1.25) - 1) * kc;
+        const s = y0 / Math.max(1e-4, lum(i)); r[i] *= s; g[i] *= s; b[i] *= s;
+      }
+      const L = lumArr(), bigY = navg(L, rad(0.12)), midY = navg(L, rad(0.04)), lam = clamp(P.unify * 0.6, 0, 0.45);
+      for (let i = 0; i < m; i++) {
+        if (sk[i] < 0.02) continue;
+        const ty = tY(i); if (ty < 0.02) continue;
+        const kl = k * reach[i] * ss(0.3, 0.5, bigY[i] / ty) * (1 - face[i]); if (kl < 0.01) continue;
+        let gy = 1 + (clamp(ty / Math.max(0.03, bigY[i]), 0.92, 1.5) - 1) * 0.45 * kl;
+        const my = midY[i] * gy;
+        if (my < ty) gy *= 1 + lam * kl * (Math.min(1.5, ty / Math.max(0.03, my)) - 1);
+        r[i] *= gy; g[i] *= gy; b[i] *= gy;
+      }
+    }
+    // c) mid-sized blotches (bigger than pores, smaller than a limb's shading): colour mostly, brightness a little
+    {
+      const r1 = rad(0.006), r2 = Math.max(r1 + 2, rad(0.03));
+      const Yc = lumArr(), Cb = new Float32Array(m), Cr = new Float32Array(m);
+      for (let i = 0; i < m; i++) { Cb[i] = (b[i] - Yc[i]) * 0.564; Cr[i] = (r[i] - Yc[i]) * 0.713; }
+      const band = (v, kk) => { const a1 = navg(v, r1), a2 = navg(v, r2); for (let i = 0; i < m; i++) { const wt = Math.min(1, sk[i] * 1.5) * (1 - face[i]); if (wt > 0.01) v[i] -= kk * k * wt * (a1[i] - a2[i]); } };
+      band(Yc, 0.15); band(Cb, 0.8); band(Cr, 0.8);
+      for (let i = 0; i < m; i++) { if (sk[i] < 0.02) continue; r[i] = Yc[i] + 1.402 * Cr[i]; g[i] = Yc[i] - 0.344136 * Cb[i] - 0.714136 * Cr[i]; b[i] = Yc[i] + 1.772 * Cb[i]; }
+    }
+    // the face itself only takes the small shift to its (warmer) target: all its light and shade stay
+    if (faces.length && pale > 0.01) for (let i = 0; i < m; i++) {
+      const f = face[i] * Math.min(1, sk[i] * 1.5) * k; if (f < 0.01) continue;
+      r[i] += f * 1.402 * 0.003 * pale; g[i] -= f * (0.344136 * -0.012 + 0.714136 * 0.003) * pale; b[i] += f * 1.772 * -0.012 * pale;
+    }
+  }
+
+  // brightness guard: the face may end up only a little brighter than it came in; the body may catch up with the face
+  {
+    let f0 = 0, f1 = 0, fc = 0, c0 = 0, c1 = 0, cw = 0;
+    for (let i = 0; i < m; i++) {
+      const y0 = 0.299 * r0[i] + 0.587 * g0[i] + 0.114 * b0[i], y1 = lum(i);
+      if (cheek && cheek[i] > 0.5) { f0 += y0; f1 += y1; fc++; }
+      const wb = sk[i] * (1 - face[i]); if (wb > 0.05) { c0 += y0 * wb; c1 += y1 * wb; cw += wb; }
+    }
+    const lim = (before, after, maxUp) => after > before + maxUp ? maxUp / (after - before) : 1;
+    const sF = fc > 3 ? lim(f0 / fc, f1 / fc, 0.04) : 1;
+    const faceNow = fc > 3 ? f0 / fc + (f1 - f0) / fc * sF : 1;
+    const sB = cw > 8 ? lim(c0 / cw, c1 / cw, Math.max(0.12, faceNow - c0 / cw + 0.01)) : 1;
+    if (sF < 0.999 || sB < 0.999) for (let i = 0; i < m; i++) {
+      const s = lerp(sB, sF, face[i]);
+      r[i] = r0[i] + (r[i] - r0[i]) * s; g[i] = g0[i] + (g[i] - g0[i]) * s; b[i] = b0[i] + (b[i] - b0[i]) * s;
+    }
+  }
+
+  // the change as a gain map, spread a little beyond the skin so its edges get the full amount, then applied at full size
+  const e = 0.02, gains = [[r, r0], [g, g0], [b, b0]].map(([c, c0]) => { const gn = new Float32Array(m); for (let i = 0; i < m; i++) gn[i] = clamp((c[i] + e) / (c0[i] + e), 0.6, 2.2); return gn; });
+  const known = new Float32Array(m); for (let i = 0; i < m; i++) known[i] = sk[i] >= 0.5 ? 1 : 0;
+  pushPull(gains, known, w, h);
+  for (const gn of gains) for (let i = 0; i < m; i++) if (!(gn[i] > 0.5)) gn[i] = 1; // nothing known nearby: no change
+  const ap = A.skinApply, n = W * H;
+  for (const [C, gn] of [[R, gains[0]], [G, gains[1]], [B, gains[2]]]) {
+    const up = w === W && h === H ? gn : upsample(blur(gn, w, h, 1, 1), w, h, W, H);
+    for (let i = 0; i < n; i++) { const a = ap[i]; if (a > 0.004) C[i] = clamp(C[i] * (1 + (up[i] - 1) * Math.min(1, a * 1.25)), 0, 1); }
+  }
+}
+
+// eyes: whiter, calmer whites (less red), clearer irises
+function eyeStage(R, G, B, P) {
+  irisStage(R, G, B, P);
+  const { W, A } = S, bx = A.eyeBox;
+  if (!(P.eyelight > 0.01) || !bx || !A.irisMask) return;
+  const w = bx.w, h = bx.h, n = w * h, k = P.eyelight;
+  const ch = [cropArr(R, W, bx), cropArr(G, W, bx), cropArr(B, W, bx)];
+  const em = cropArr(A.eyeMask, W, bx), im = cropArr(A.irisMask, W, bx);
+  const L = new Float32Array(n); for (let i = 0; i < n; i++) L[i] = 0.299 * ch[0][i] + 0.587 * ch[1][i] + 0.114 * ch[2][i];
+  const Lm = blur(L, w, h, Math.max(2, Math.round(A.fw * 0.012)), 2);
+  for (let i = 0; i < n; i++) {
+    const e = em[i]; if (e < 0.01) continue;
+    const ir = Math.min(1, im[i]) * e, sc = e * (1 - Math.min(1, im[i] * 1.5)), l = L[i];
+    let nl = l;
+    if (sc > 0) nl += 0.1 * k * sc * ss(0.25, 0.7, l) * (1 - l);              // whites of the eyes
+    if (ir > 0) nl += 0.45 * k * ir * (l - Lm[i]) + 0.03 * k * ir;           // iris texture and a touch of light
+    const s = nl / Math.max(0.02, l), desat = 0.35 * k * sc, sat = 1 + 0.15 * k * ir;
+    for (const c of ch) { const v = c[i] * s; c[i] = clamp(nl + (v - nl) * (1 - desat) * sat, 0, 1); }
+  }
+  uncropArr(R, W, bx, ch[0]); uncropArr(G, W, bx, ch[1]); uncropArr(B, W, bx, ch[2]);
+}
+
+// finishing touches on the final canvas: background, colour style, glow, vignette, grain
+// edge-aware cutout: the soft person outline is snapped to real edges in the photo (guided filter),
+// only in the uncertain band around the outline
+function refinedAlpha() {
+  const A = S.A;
+  if (A.alphaFine) return A.alphaFine;
+  const { W, H, base } = S, n = W * H, p = A.personSoft, I = new Float32Array(n);
+  for (let i = 0; i < n; i++) I[i] = (0.299 * base[i * 4] + 0.587 * base[i * 4 + 1] + 0.114 * base[i * 4 + 2]) / 255;
+  const r = Math.max(4, Math.round(Math.min(W, H) * 0.006)), eps = 1e-3;
+  const mI = blur(I, W, H, r), mp = blur(p, W, H, r), Ip = new Float32Array(n), II = new Float32Array(n);
+  for (let i = 0; i < n; i++) { Ip[i] = I[i] * p[i]; II[i] = I[i] * I[i]; }
+  const mIp = blur(Ip, W, H, r), mII = blur(II, W, H, r), a = new Float32Array(n), b = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const v = mII[i] - mI[i] * mI[i]; a[i] = (mIp[i] - mI[i] * mp[i]) / (v + eps); b[i] = mp[i] - a[i] * mI[i]; }
+  const ma = blur(a, W, H, r), mb = blur(b, W, H, r), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const q = clamp(ma[i] * I[i] + mb[i], 0, 1), band = 4 * p[i] * (1 - p[i]);
+    out[i] = p[i] > 0.985 ? 1 : p[i] < 0.01 ? 0 : lerp(p[i], q, Math.min(1, band * 1.5));
+  }
+  return A.alphaFine = out;
+}
+
+function backdrop(W, H, kind) {
+  const b = BACKS[kind], A = S.A, n = W * H, sy = H / S.H;
+  if (b.img) {
+    // scenery photo, cover-fitted, slightly soft like a portrait lens
+    const im = S.scenes[kind], c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d'), sc = Math.max(W / im.width, H / im.height), dw = im.width * sc, dh = im.height * sc;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(im, (W - dw) / 2, (H - dh) * 0.45, dw, dh);
+    const d = ctx.getImageData(0, 0, W, H).data, out = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+    for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) out[k][i] = d[i * 4 + k] / 255;
+    const r = Math.max(1, Math.round(Math.min(W, H) * 0.003));
+    return out.map(ch => blur(ch, W, H, r, 2));
+  }
+  const R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n);
+  const cx = A.center.x, cy = A.center.y * sy - H * 0.12, diag = Math.hypot(W, H);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, d = Math.hypot(x - cx, (y - cy) * 0.85) / (diag * 0.55);
+    const f = (1.14 - 0.5 * ss(0, 1, d)) * (1 - 0.08 * y / H) + (((i * 2654435761) >>> 0) / 4294967296 - 0.5) * 0.02;
+    R[i] = b.c[0] * f; G[i] = b.c[1] * f; B[i] = b.c[2] * f;
+  }
+  if (b.bokeh) {
+    const minD = Math.min(W, H);
+    for (let k = 0; k < 26; k++) {
+      const x0 = rnd() * W, y0 = rnd() * H * 0.85, r = minD * (0.02 + rnd() * 0.05), a = 0.12 + rnd() * 0.22;
+      const col = rnd() < 0.7 ? [1, 0.78, 0.5] : [1, 0.9, 0.8];
+      for (let y = Math.max(0, Math.floor(y0 - r)); y < Math.min(H, Math.ceil(y0 + r)); y++)
+        for (let x = Math.max(0, Math.floor(x0 - r)); x < Math.min(W, Math.ceil(x0 + r)); x++) {
+          const t = Math.hypot(x - x0, y - y0) / r; if (t >= 1) continue;
+          const v = a * (1 - ss(0.75, 1, t)) * (0.85 + 0.15 * t), i = y * W + x;
+          R[i] += v * col[0]; G[i] += v * col[1]; B[i] += v * col[2];
+        }
+    }
+  }
+  return [R, G, B];
+}
+
+// atmosphere layers, kept mostly behind the person and away from the face
+function atmosphere(o) {
+  const { W, H, R, G, B, alpha } = o, n = W * H, A = S.A, minD = Math.min(W, H), sy = H / S.H;
+  const bgw = i => alpha ? 1 - alpha[i] : 1;
+  const faceBoxes = A.faces.map(f => { const xs = f.p.map(p => p.x), ys = f.p.map(p => p.y * sy); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; });
+  const nearFace = (x, y, pad) => faceBoxes.some(([a, b, c, d]) => x > a - pad && x < c + pad && y > b - pad && y < d + pad);
+  let seed = (W * 31 + H) | 0;
+  const rnd = () => (seed = (seed * 16807 + 11) % 2147483647) / 2147483647;
+  const screen = (i, r, g, b, k) => { R[i] = 1 - (1 - R[i]) * (1 - r * k); G[i] = 1 - (1 - G[i]) * (1 - g * k); B[i] = 1 - (1 - B[i]) * (1 - b * k); };
+  const disc = (x0, y0, rad, col, k, soft, onPerson) => {
+    for (let y = Math.max(0, Math.floor(y0 - rad)); y < Math.min(H, Math.ceil(y0 + rad)); y++)
+      for (let x = Math.max(0, Math.floor(x0 - rad)); x < Math.min(W, Math.ceil(x0 + rad)); x++) {
+        const t = Math.hypot(x - x0, y - y0) / rad; if (t >= 1) continue;
+        const i = y * W + x, v = (1 - ss(soft, 1, t)) * (0.85 + 0.15 * t) * (onPerson ? 1 : bgw(i));
+        if (v > 0.002) screen(i, col[0], col[1], col[2], k * v);
+      }
+  };
+  const side = A.center && A.center.x > W / 2 ? 0 : 1; // light comes from the side with more room
+  if (S.atmo === 'sun') {
+    // warm sunlight from a top corner, with a soft light leak
+    const lx = side ? W * 1.02 : -W * 0.02, ly = -H * 0.05, Rr = Math.hypot(W, H) * 0.75;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x, t = Math.hypot(x - lx, y - ly) / Rr; if (t >= 1) continue;
+      const k = Math.pow(1 - t, 2.2) * (0.55 + 0.45 * bgw(i));
+      screen(i, 1, 0.74, 0.45, 0.55 * k);
+    }
+  } else if (S.atmo === 'bokeh') {
+    for (let k = 0; k < 40; k++) {
+      const x = rnd() * W, y = rnd() * H * 0.8, r = minD * (0.012 + rnd() * 0.04);
+      if (nearFace(x, y, r * 2)) continue;
+      disc(x, y, r, rnd() < 0.65 ? [1, 0.8, 0.52] : [1, 0.93, 0.85], 0.12 + rnd() * 0.25, 0.75, false);
+    }
+  } else if (S.atmo === 'star') {
+    // four-point glints on the brightest small highlights (jewellery, eyes, lights)
+    const L = new Float32Array(n); for (let i = 0; i < n; i++) L[i] = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i];
+    const Lb = blurFast(L, W, H, Math.max(3, Math.round(minD * 0.01)));
+    const cand = [];
+    for (let i = 0; i < n; i += 3) { const d = L[i] - Lb[i]; if (L[i] > 0.82 && d > 0.12) cand.push([d + L[i], i]); }
+    cand.sort((a, b) => b[0] - a[0]);
+    const picked = [], minSep = minD * 0.08;
+    for (const [, i] of cand) {
+      const x = i % W, y = (i / W) | 0;
+      if (picked.some(([px, py]) => Math.hypot(px - x, py - y) < minSep) || nearFace(x, y, -minD * 0.02)) continue;
+      picked.push([x, y]); if (picked.length >= 10) break;
+    }
+    for (const [x0, y0] of picked) {
+      const len = minD * (0.025 + rnd() * 0.025);
+      for (let d = -len; d <= len; d++) {
+        const f = Math.pow(1 - Math.abs(d) / len, 2.5) * 0.9;
+        for (const [x, y] of [[x0 + d, y0], [x0, y0 + d]]) { const xi = Math.round(x), yi = Math.round(y); if (xi < 0 || yi < 0 || xi >= W || yi >= H) continue; screen(yi * W + xi, 1, 0.97, 0.9, f); }
+      }
+      disc(x0, y0, minD * 0.008, [1, 0.97, 0.92], 0.8, 0.2, true);
+    }
+  } else if (S.atmo === 'petal') {
+    // drifting petals in the foreground edges, some soft (out of focus)
+    for (let k = 0; k < 34; k++) {
+      const edge = rnd(), x0 = edge < 0.5 ? rnd() * W * 0.28 + (rnd() < 0.5 ? 0 : W * 0.72) : rnd() * W, y0 = edge < 0.5 ? rnd() * H : rnd() * H * 0.22;
+      if (nearFace(x0, y0, minD * 0.08)) continue;
+      const rl = minD * (0.008 + rnd() * 0.018), rs = rl * (0.55 + rnd() * 0.2), ang = rnd() * Math.PI, ca = Math.cos(ang), sa = Math.sin(ang);
+      const soft = rnd() < 0.3 ? 0.2 : 0.75, a = 0.55 + rnd() * 0.35, col = [0.98, 0.78 + rnd() * 0.08, 0.84 + rnd() * 0.06];
+      for (let y = Math.max(0, Math.floor(y0 - rl)); y < Math.min(H, Math.ceil(y0 + rl)); y++)
+        for (let x = Math.max(0, Math.floor(x0 - rl)); x < Math.min(W, Math.ceil(x0 + rl)); x++) {
+          const u = ((x - x0) * ca + (y - y0) * sa) / rl, v = (-(x - x0) * sa + (y - y0) * ca) / rs, t = Math.hypot(u, v); if (t >= 1) continue;
+          const i = y * W + x, m = a * (1 - ss(soft, 1, t)), sh = 0.92 + 0.08 * u;
+          R[i] += m * (col[0] * sh - R[i]); G[i] += m * (col[1] * sh - G[i]); B[i] += m * (col[2] * sh - B[i]);
+        }
+    }
+  } else if (S.atmo === 'haze') {
+    // soft dreamy haze: lifted, gently diffused background and a faint glow over everything
+    const r = Math.max(3, Math.round(minD * 0.01));
+    const bl = [R, G, B].map(c => blurFast(c, W, H, r, 2));
+    for (let i = 0; i < n; i++) {
+      const k = 0.18 + 0.22 * bgw(i);
+      R[i] = lerp(R[i], 1 - (1 - bl[0][i]) * 0.86, k); G[i] = lerp(G[i], 1 - (1 - bl[1][i]) * 0.87, k); B[i] = lerp(B[i], 1 - (1 - bl[2][i]) * 0.89, k);
+    }
+  }
+}
+
+function post(o, P) {
+  const { W, H, R, G, B, alpha: al } = o, n = W * H, A = S.A;
+  // background replacement, with the old background colour taken out of soft edges (hair)
+  if (S.back !== 'orig' && al) {
+    const [bR, bG, bB] = backdrop(W, H, S.back), fill = o.fill;
+    // match the person to the new light: average colour cast and brightness of old vs new surroundings
+    const mean = (r, g, b, wgt) => { let s = [0, 0, 0], c = 0; for (let i = 0; i < n; i += 3) { const w = wgt(i); if (w <= 0) continue; s[0] += r[i] * w; s[1] += g[i] * w; s[2] += b[i] * w; c += w; } return s.map(v => v / Math.max(1e-6, c)); };
+    const oldBg = fill ? mean(fill[0], fill[1], fill[2], i => 1 - al[i]) : [0.5, 0.5, 0.5], newBg = mean(bR, bG, bB, i => 1 - al[i]);
+    const lum3 = c => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    const ex = clamp(Math.pow(lum3(newBg) / Math.max(0.05, lum3(oldBg)), 0.15), 0.88, 1.12);
+    const tint = [0, 1, 2].map(k => clamp(lerp(1, (newBg[k] / Math.max(0.03, lum3(newBg))) / (oldBg[k] / Math.max(0.03, lum3(oldBg))), 0.3), 0.9, 1.1) * ex);
+    // light wrap: the new background's light spills a little over the person's edges
+    const aB = blurFast(al, W, H, Math.max(2, Math.round(Math.min(W, H) * 0.012)), 2);
+    const wr = Math.max(3, Math.round(Math.min(W, H) * 0.02));
+    const sR = blurFast(bR, W, H, wr, 2), sG = blurFast(bG, W, H, wr, 2), sB = blurFast(bB, W, H, wr, 2);
+    for (let i = 0; i < n; i++) {
+      const a = al[i];
+      let r = R[i], g = G[i], b = B[i];
+      if (fill && a > 0.05 && a < 0.995) { const d = Math.max(a, 0.35); r = clamp((r - (1 - a) * fill[0][i]) / d, 0, 1); g = clamp((g - (1 - a) * fill[1][i]) / d, 0, 1); b = clamp((b - (1 - a) * fill[2][i]) / d, 0, 1); }
+      r *= tint[0]; g *= tint[1]; b *= tint[2];
+      const wrap = Math.min(1, Math.max(0, a - aB[i]) * 2.5) * 0.45;
+      r += wrap * (sR[i] - r); g += wrap * (sG[i] - g); b += wrap * (sB[i] - b);
+      R[i] = clamp(a * r + (1 - a) * bR[i], 0, 1); G[i] = clamp(a * g + (1 - a) * bG[i], 0, 1); B[i] = clamp(a * b + (1 - a) * bB[i], 0, 1);
+    }
+  } else if (P.bgtone > 0.01 && al) {
+    // quieter background: less saturation and contrast so the person stands out
+    for (let i = 0; i < n; i++) {
+      const k = (1 - al[i]) * P.bgtone; if (k < 0.01) continue;
+      const l = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i], s = 1 - 0.4 * k, c = 1 - 0.3 * k, dk = 1 - 0.06 * k;
+      // soften only bright background areas; never lift darks (that greyed hair at the person's edge)
+      const lc = (l > 0.5 ? 0.5 + (l - 0.5) * c : l) * dk;
+      R[i] = clamp(lc + (R[i] - l) * s, 0, 1); G[i] = clamp(lc + (G[i] - l) * s, 0, 1); B[i] = clamp(lc + (B[i] - l) * s, 0, 1);
+    }
+  }
+  if (S.atmo !== 'none') atmosphere(o);
+  // colour style
+  const g = GRADES[S.grade];
+  if (g && g.wb) {
+    for (let i = 0; i < n; i++) {
+      const out = [R[i], G[i], B[i]], l0 = 0.299 * out[0] + 0.587 * out[1] + 0.114 * out[2];
+      for (let c = 0; c < 3; c++) {
+        let v = g.lift + out[c] * (g.gain - g.lift);
+        v = lerp(v, v * v * (3 - 2 * v), g.con);
+        v = v * g.wb[c] + g.sh[c] * (1 - l0) * (1 - l0) + g.hi[c] * l0 * l0;
+        out[c] = v;
+      }
+      const l = 0.299 * out[0] + 0.587 * out[1] + 0.114 * out[2];
+      R[i] = clamp(l + (out[0] - l) * g.sat, 0, 1); G[i] = clamp(l + (out[1] - l) * g.sat, 0, 1); B[i] = clamp(l + (out[2] - l) * g.sat, 0, 1);
+    }
+  }
+  // reference photo: move brightness and colour statistics most of the way towards it
+  if (S.grade === 'ref' && S.refStats) {
+    const Y = new Float32Array(n), Cb = new Float32Array(n), Cr = new Float32Array(n);
+    for (let i = 0; i < n; i++) { Y[i] = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i]; Cb[i] = (B[i] - Y[i]) * 0.564; Cr[i] = (R[i] - Y[i]) * 0.713; }
+    const cur = [Y, Cb, Cr].map(stats), amt = [0.6, 0.7, 0.7];
+    const tf = [Y, Cb, Cr].map((a, c) => {
+      const [m0, s0] = cur[c], [m1, s1] = S.refStats[c], ratio = lerp(1, clamp(s1 / s0, 0.6, 1.6), amt[c]), mt = lerp(m0, m1, amt[c]);
+      return v => (v - m0) * ratio + mt;
+    });
+    for (let i = 0; i < n; i++) {
+      const y = tf[0](Y[i]), cb = tf[1](Cb[i]), cr = tf[2](Cr[i]);
+      R[i] = clamp(y + 1.402 * cr, 0, 1); G[i] = clamp(y - 0.344136 * cb - 0.714136 * cr, 0, 1); B[i] = clamp(y + 1.772 * cb, 0, 1);
+    }
+  }
+  // soft glow from the highlights
+  if (P.glow > 0.01) {
+    const hl = new Float32Array(n);
+    for (let i = 0; i < n; i++) hl[i] = ss(0.55, 1, 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i]);
+    const r = Math.max(3, Math.round(Math.min(W, H) * 0.025)), k = 0.45 * P.glow;
+    for (const c of [R, G, B]) {
+      const src = new Float32Array(n); for (let i = 0; i < n; i++) src[i] = c[i] * hl[i];
+      const bl = blurFast(src, W, H, r, 2);
+      for (let i = 0; i < n; i++) c[i] = 1 - (1 - c[i]) * (1 - k * bl[i]);
+    }
+  }
+  // vignette centred on the person
+  if (P.vignette > 0.01) {
+    const cx = A.center ? A.center.x : W / 2, cy = A.center ? A.center.y * H / S.H : H / 2, Rr = Math.hypot(W, H) * 0.55;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const f = 1 - P.vignette * 0.32 * ss(0.35, 1, Math.hypot(x - cx, y - cy) / Rr);
+      if (f > 0.999) continue;
+      const i = y * W + x; R[i] *= f; G[i] *= f; B[i] *= f;
+    }
+  }
+  // fine film grain, strongest in the mid-tones
+  if (P.grain > 0.01) {
+    for (let i = 0; i < n; i++) {
+      const l = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i], z = ((((i + 1) * 2654435761) >>> 0) / 4294967296 - 0.5) * 0.05 * P.grain * (0.3 + 2.8 * l * (1 - l));
+      R[i] = clamp(R[i] + z, 0, 1); G[i] = clamp(G[i] + z, 0, 1); B[i] = clamp(B[i] + z, 0, 1);
+    }
+  }
+}
+
+// 气色红润: healthy warm-peach skin instead of "white" — more saturation and a peach-pink shift, strongest on the face
+function peachStage(R, G, B, P) {
+  const k = P.peach;
+  if (!(k > 0.01)) return;
+  const { W, H, A } = S, n = W * H, fs = A.faceSoft, sk = A.skin;
+  for (let i = 0; i < n; i++) {
+    const w = Math.min(1, (fs ? fs[i] : 0) * ss(0.05, 0.4, sk[i]) + 0.6 * sk[i]) * k; if (w < 0.01) continue;
+    const l = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i], sat = 1 + 0.22 * w;
+    let r = l + (R[i] - l) * sat, g = l + (G[i] - l) * sat, b = l + (B[i] - l) * sat;
+    r += 0.025 * w * l; g -= 0.004 * w * l; b -= 0.012 * w * l;                 // towards peach-pink, not grey
+    R[i] = clamp(r, 0, 1); G[i] = clamp(g, 0, 1); B[i] = clamp(b, 0, 1);
+  }
+}
+
+// 发丝光泽: hair a touch warmer and shinier — more contrast along the strands, gentle warm tint
+function hairStage(R, G, B, P) {
+  const k = P.hair, { W, H, A } = S, ps = A.personSoft;
+  if (!(k > 0.01) || !ps) return;
+  const n = W * H, minD = Math.min(W, H), L = new Float32Array(n);
+  for (let i = 0; i < n; i++) L[i] = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i];
+  const Lb = blurFast(L, W, H, Math.max(3, Math.round(minD * 0.01)), 2), Lm = blur(L, W, H, Math.max(1, Math.round(minD * 0.002)), 1);
+  const ry = A.stats.skinY ?? 0.5, fs = A.faceSoft;
+  for (let i = 0; i < n; i++) {
+    // hair as labelled by the model (without it: on the person, clearly darker than skin, outside the face)
+    const w = (A.hair ? Math.min(1, A.hair[i] * 1.3) : ss(0.3, 0.7, ps[i]) * (1 - ss(0.45 * ry, 0.75 * ry, Lb[i])) * (1 - ss(0.1, 0.4, A.skin[i])) * (1 - (fs ? fs[i] : 0))) * k;
+    if (w < 0.01) continue;
+    // a small, fixed amount of extra strand contrast (added, never divided by the dark hair's brightness,
+    // which turned strands into black-and-white streaks), capped, plus a gentle warm tint
+    const add = clamp(0.25 * w * (Lm[i] - Lb[i]), -0.02, 0.02);
+    R[i] = clamp(R[i] * (1 + 0.03 * w) + add, 0, 1); G[i] = clamp(G[i] * (1 + 0.008 * w) + add, 0, 1); B[i] = clamp(B[i] * (1 - 0.02 * w) + add, 0, 1);
+  }
+}
+
+// 画面净化 (精致): give the whole picture the same clean finish as the retouched skin — edge-preserving
+// noise removal on everything (hair, clothes, background), so a smooth face never sits in a grainy photo
+function cleanStage(R, G, B, P) {
+  const c = P.clean;
+  if (!(c > 0.01)) return;
+  const { W, H } = S, n = W * H, minD = Math.min(W, H);
+  const L = new Float32Array(n), Cb = new Float32Array(n), Cr = new Float32Array(n);
+  for (let i = 0; i < n; i++) { L[i] = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i]; Cb[i] = (B[i] - L[i]) * 0.564; Cr[i] = (R[i] - L[i]) * 0.713; }
+  const r = Math.max(2, Math.round(minD * 0.003)), eps = Math.pow(0.012 + 0.02 * c, 2);
+  const q = guided(L, W, H, r, eps), Cbs = blur(Cb, W, H, r + 1, 2), Crs = blur(Cr, W, H, r + 1, 2);
+  const k = 0.85 * c;
+  for (let i = 0; i < n; i++) {
+    const y = L[i] + k * (q[i] - L[i]), cb = Cb[i] + k * (Cbs[i] - Cb[i]), cr = Cr[i] + k * (Crs[i] - Cr[i]);
+    R[i] = clamp(y + 1.402 * cr, 0, 1); G[i] = clamp(y - 0.344136 * cb - 0.714136 * cr, 0, 1); B[i] = clamp(y + 1.772 * cb, 0, 1);
+  }
+}
+
+// quality: clean colour noise, sharpen fine detail (less on skin), add a little local contrast
+function detailStage(R, G, B, P) {
+  const d = P.detail;
+  if (!(d > 0.01)) return;
+  const { W, H, A } = S, n = W * H, sk = A.skin;
+  const L = new Float32Array(n), Cb = new Float32Array(n), Cr = new Float32Array(n);
+  for (let i = 0; i < n; i++) { L[i] = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i]; Cb[i] = (B[i] - L[i]) * 0.564; Cr[i] = (R[i] - L[i]) * 0.713; }
+  const Cbs = blur(Cb, W, H, 2), Crs = blur(Cr, W, H, 2), L1 = blur(L, W, H, 1);
+  const Lc = blurFast(L, W, H, Math.max(4, Math.round(Math.min(W, H) * 0.015)), 2);
+  const kc = 0.6 * d;
+  for (let i = 0; i < n; i++) {
+    const l = L[i], s = sk[i], hp = l - L1[i];
+    const hpT = hp > 0 ? Math.max(0, hp - 0.012) : Math.min(0, hp + 0.012); // only real edges, not grain-level noise
+    // no sharpening in hair and shadows (in low light that is mostly sensor noise, which turns into lumps),
+    // and very little on skin anywhere (arms, legs)
+    const ss0 = A.skinSoft ? A.skinSoft[i] : s, sharpW = ss(0.25, 0.4, L1[i]) * (1 - 0.95 * Math.max(s, ss0));
+    // local contrast likewise only on brighter, non-skin areas (on hair it made strands look rough)
+    // (none on any skin: on arms and legs it exaggerated slight unevenness into lumps)
+    const y = l + d * 1.2 * sharpW * hpT + d * 0.3 * (1 - Math.max(s, ss0)) * ss(0.25, 0.4, Lc[i]) * (l - Lc[i]) * 4 * l * (1 - l);
+    const cb = Cb[i] + kc * (Cbs[i] - Cb[i]), cr = Cr[i] + kc * (Crs[i] - Cr[i]);
+    R[i] = clamp(y + 1.402 * cr, 0, 1); G[i] = clamp(y - 0.344136 * cb - 0.714136 * cr, 0, 1); B[i] = clamp(y + 1.772 * cb, 0, 1);
+  }
+}
+
+function bgStage(R, G, B, P) {
+  const { W, H, A } = S, n = W * H;
+  const r = Math.round(Math.min(W, H) * 0.014 * P.bg);
+  if (r < 1) return;
+  const pm = A.personSoft, wt = new Float32Array(n);
+  for (let i = 0; i < n; i++) wt[i] = 1 - pm[i];
+  const den = blurFast(wt, W, H, r, 3);
+  for (const c of [R, G, B]) {
+    const cw = new Float32Array(n); for (let i = 0; i < n; i++) cw[i] = c[i] * wt[i];
+    const num = blurFast(cw, W, H, r, 3);
+    for (let i = 0; i < n; i++) if (den[i] > 1e-3) { const v = num[i] / den[i]; c[i] = c[i] * pm[i] + v * (1 - pm[i]); }
+  }
+}
+
+function geometry(R, G, B, P) {
+  const { W, H, A } = S, n = W * H;
+  let dx = null, dy = null;
+  const need = () => { if (!dx) { dx = new Float32Array(n); dy = new Float32Array(n); } };
+
+  // face slimming: narrow the lower face evenly towards its own centre line.
+  // Only sideways, so the chin keeps its length and shape (no pointy chins).
+  if (P.slim > 0.01) for (const f of A.faces) {
+    need();
+    const top = f.p[168], chin = f.p[152], Lf = dist(top, chin) || 1;
+    const dn = { x: (chin.x - top.x) / Lf, y: (chin.y - top.y) / Lf }, rt = { x: -dn.y, y: dn.x };
+    const half = f.fw / 2, cmax = P.slim * 0.045;
+    const cv = v => v < 0.25 ? 0 : v < 0.6 ? ss(0.25, 0.6, v) : v < 0.85 ? 1 : v < 1 ? lerp(1, 0.35, (v - 0.85) / 0.15) : v < 1.2 ? lerp(0.35, 0, (v - 1) / 0.2) : 0;
+    const hu = t => t <= 1 ? 1 : t >= 1.4 ? 0 : 0.5 * (1 + Math.cos(Math.PI * (t - 1) / 0.4));
+    const corners = [-1.5, 1.5].flatMap(s => [0, 1.25].map(v => ({ x: top.x + rt.x * s * half + dn.x * v * Lf, y: top.y + rt.y * s * half + dn.y * v * Lf })));
+    const x0 = Math.max(0, Math.floor(Math.min(...corners.map(c => c.x)))), x1 = Math.min(W - 1, Math.ceil(Math.max(...corners.map(c => c.x))));
+    const y0 = Math.max(0, Math.floor(Math.min(...corners.map(c => c.y)))), y1 = Math.min(H - 1, Math.ceil(Math.max(...corners.map(c => c.y))));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x - top.x, py = y - top.y, c = cmax * cv((px * dn.x + py * dn.y) / Lf);
+      if (c <= 0) continue;
+      const u = px * rt.x + py * rt.y, hh = hu(Math.abs(u) / half);
+      if (!hh) continue;
+      const du = u * c * hh, i = y * W + x;
+      dx[i] += rt.x * du; dy[i] += rt.y * du;
+    }
+  }
+  // nose: narrow the nose wings towards the nose's own centre line (sideways only)
+  if (P.nose > 0.01) for (const f of A.faces) {
+    need();
+    const top = f.p[168], tip = f.p[2], Ln = dist(top, tip) || 1;
+    const dn = { x: (tip.x - top.x) / Ln, y: (tip.y - top.y) / Ln }, rt = { x: -dn.y, y: dn.x };
+    const half = dist(f.p[129], f.p[358]) / 2 * 1.15, cmax = P.nose * 0.12;
+    const cv = v => v < 0.35 ? 0 : v < 0.75 ? ss(0.35, 0.75, v) : v < 1.05 ? 1 : v < 1.3 ? 1 - ss(1.05, 1.3, v) : 0;
+    const hu = t => t <= 1 ? 1 : t >= 1.5 ? 0 : 0.5 * (1 + Math.cos(Math.PI * (t - 1) / 0.5));
+    const R0 = Math.max(half * 1.6, Ln * 0.4), x0 = Math.max(0, Math.floor(tip.x - R0 - Ln)), x1 = Math.min(W - 1, Math.ceil(tip.x + R0 + Ln));
+    const y0 = Math.max(0, Math.floor(Math.min(top.y, tip.y) - R0)), y1 = Math.min(H - 1, Math.ceil(Math.max(top.y, tip.y) + R0));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x - top.x, py = y - top.y, c = cmax * cv((px * dn.x + py * dn.y) / Ln);
+      if (c <= 0) continue;
+      const u = px * rt.x + py * rt.y, hh = hu(Math.abs(u) / half);
+      if (!hh) continue;
+      const du = u * c * hh, i = y * W + x;
+      dx[i] += rt.x * du; dy[i] += rt.y * du;
+    }
+  }
+  // lips: fuller lips, a gentle local magnification centred on the mouth (slightly more vertical)
+  if (P.lips > 0.01) for (const f of A.faces) {
+    need();
+    const c = { x: (f.p[13].x + f.p[14].x) / 2, y: (f.p[13].y + f.p[14].y) / 2 }, mw = dist(f.p[61], f.p[291]);
+    const R0 = mw * 0.75, a = P.lips * 0.1;
+    const x0 = Math.max(0, Math.floor(c.x - R0)), x1 = Math.min(W - 1, Math.ceil(c.x + R0)), y0 = Math.max(0, Math.floor(c.y - R0)), y1 = Math.min(H - 1, Math.ceil(c.y + R0));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const d = Math.hypot((x - c.x) * 0.9, (y - c.y) * 1.3) / R0; if (d >= 1) continue;
+      const k = -a * (1 - d * d) * (1 - d * d), i = y * W + x;
+      dx[i] += (x - c.x) * k * 0.7; dy[i] += (y - c.y) * k;
+    }
+  }
+  // eyes: gentle local magnification
+  if (P.eyes > 0.01) for (const f of A.faces) for (const e of f.eyes) {
+    need();
+    const R0 = e.w * 1.15, a = P.eyes * 0.09, c = e.c;
+    const x0 = Math.max(0, Math.floor(c.x - R0)), x1 = Math.min(W - 1, Math.ceil(c.x + R0)), y0 = Math.max(0, Math.floor(c.y - R0)), y1 = Math.min(H - 1, Math.ceil(c.y + R0));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const d = Math.hypot(x - c.x, y - c.y) / R0; if (d >= 1) continue;
+      const k = -a * (1 - d * d) * (1 - d * d), i = y * W + x;
+      dx[i] += (x - c.x) * k; dy[i] += (y - c.y) * k;
+    }
+  }
+  // body: narrow each row of the silhouette slightly towards its own centre line
+  if (P.body > 0.01 && A.bodyOK) { need(); bodyWarp(dx, P.body); }
+
+  // legs: stretch the band between hips and ankles
+  let rowMap = null, H2 = H;
+  if (P.legs > 0.01 && A.legsOK) {
+    const Pz = A.pose, hipY = (Pz[23].y + Pz[24].y) / 2, shY = (Pz[11].y + Pz[12].y) / 2, ankY = Math.max(Pz[27].y, Pz[28].y);
+    const y0 = hipY - 0.05 * (hipY - shY), y1 = ankY, del = (y1 - y0) * 0.18, s = P.legs * 0.08;
+    const f = y => y < y0 || y > y1 ? 0 : y < y0 + del ? ss(0, 1, (y - y0) / del) : y > y1 - del ? ss(0, 1, (y1 - y) / del) : 1;
+    const F = new Float64Array(H + 1);
+    for (let y = 0; y < H; y++) F[y + 1] = F[y] + 1 + s * f(y + 0.5);
+    H2 = Math.round(F[H]);
+    rowMap = new Float32Array(H2);
+    let j = 0;
+    for (let y2 = 0; y2 < H2; y2++) {
+      const t = y2 + 0.5;
+      while (j < H - 1 && F[j + 1] < t) j++;
+      rowMap[y2] = clamp(j + (t - F[j]) / (F[j + 1] - F[j]) - 0.5, 0, H - 1);
+    }
+  }
+
+  // Reshaping is one continuous warp (nothing can tear or show twice). It is confined to the person and
+  // a narrow band at their edge, so the surroundings move by a few pixels at most.
+  // For background replacement the person's outline (refined along real image edges) and a filled-in
+  // copy of the old background are carried along, to clean up hair edges.
+  const replacing = S.back !== 'orig' && !!A.personSoft;
+  const ps = replacing ? refinedAlpha() : A.personSoft, needFill = replacing;
+  let bR, bG, bB;
+  if (needFill) {
+    bR = R.slice(); bG = G.slice(); bB = B.slice();
+    const pw = A.personWide, wgt = new Float32Array(n); for (let i = 0; i < n; i++) wgt[i] = 1 - ss(0.02, 0.12, pw[i]);
+    pushPull([bR, bG, bB], wgt, W, H);
+  }
+  const n2 = W * H2, oR = new Float32Array(n2), oG = new Float32Array(n2), oB = new Float32Array(n2);
+  const alpha = ps ? new Float32Array(n2) : null, fill = needFill ? [new Float32Array(n2), new Float32Array(n2), new Float32Array(n2)] : null;
+  for (let y2 = 0; y2 < H2; y2++) {
+    const sy0 = rowMap ? rowMap[y2] : y2, iy = Math.round(sy0) * W;
+    for (let x = 0; x < W; x++) {
+      let sx = x, sy = sy0, d = 0;
+      if (dx) { sx += dx[iy + x]; sy += dy[iy + x]; d = Math.abs(dx[iy + x]) + Math.abs(dy[iy + x]); }
+      sx = clamp(sx, 0, W - 1.001); sy = clamp(sy, 0, H - 1.001);
+      const xi = sx | 0, yi = sy | 0, tx = sx - xi, ty = sy - yi, i = yi * W + xi, j = i + W;
+      const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty, q = y2 * W + x, bi = iy + x;
+      let r = R[i] * w00 + R[i + 1] * w10 + R[j] * w01 + R[j + 1] * w11;
+      let g = G[i] * w00 + G[i + 1] * w10 + G[j] * w01 + G[j + 1] * w11;
+      let b = B[i] * w00 + B[i + 1] * w10 + B[j] * w01 + B[j + 1] * w11;
+      if (ps) alpha[q] = ps[i] * w00 + ps[i + 1] * w10 + ps[j] * w01 + ps[j + 1] * w11;
+      if (fill) { fill[0][q] = bR[bi]; fill[1][q] = bG[bi]; fill[2][q] = bB[bi]; }
+      oR[q] = r; oG[q] = g; oB[q] = b;
+    }
+  }
+  return { W, H: H2, R: oR, G: oG, B: oB, alpha, fill };
+}
+
+function bodyWarp(dx, amt) {
+  const { W, H, A } = S, Pz = A.pose, pm = A.person;
+  const mid = (a, b) => ({ x: (Pz[a].x + Pz[b].x) / 2, y: (Pz[a].y + Pz[b].y) / 2 });
+  const vis = k => Pz[k].v > 0.5 && Pz[k].y < H;
+  const sh = mid(11, 12), hp = mid(23, 24), T = hp.y - sh.y, SW = Math.abs(Pz[11].x - Pz[12].x);
+  const kn = vis(25) && vis(26) ? mid(25, 26) : { x: hp.x, y: hp.y + T };
+  const an = vis(27) && vis(28) ? mid(27, 28) : { x: kn.x, y: kn.y + T };
+  // waist only: legs are never squeezed (that is where ghost edges appeared)
+  const ys = sh.y + 0.25 * T, yF = sh.y + 0.6 * T, yH = hp.y, yE = Math.min(H - 1, hp.y + 0.3 * T);
+  const wv = y => y < ys ? 0 : y < yF ? ss(0, 1, (y - ys) / (yF - ys)) : y < yH ? 1 : y < yE ? 1 - ss(0, 1, (y - yH) / (yE - yH)) : 0;
+  const pts = [sh, hp, kn, an];
+  const cxAt = y => { for (let i = 0; i < 3; i++) if (y <= pts[i + 1].y) return lerp(pts[i].x, pts[i + 1].x, clamp((y - pts[i].y) / Math.max(1, pts[i + 1].y - pts[i].y), 0, 1)); return an.x; };
+  const Y0 = Math.max(0, Math.floor(ys)), Y1 = Math.floor(yE), rows = Y1 - Y0 + 1;
+  if (rows < 4) return;
+  const cxs = new Float32Array(rows), ws = new Float32Array(rows);
+  for (let r = 0; r < rows; r++) {
+    const y = Y0 + r, cx = Math.round(cxAt(y)), o = y * W, lim = SW * 1.6;
+    let l = -1, rgt = -1;
+    if (cx >= 0 && cx < W && pm[o + cx] > 0.5) {
+      let gap = 0; l = cx; for (let x = cx; x >= 0 && cx - x < lim; x--) { if (pm[o + x] > 0.5) { l = x; gap = 0; } else if (++gap > 4) break; }
+      gap = 0; rgt = cx; for (let x = cx; x < W && x - cx < lim; x++) { if (pm[o + x] > 0.5) { rgt = x; gap = 0; } else if (++gap > 4) break; }
+    } else {
+      for (let x = Math.max(0, Math.round(cx - SW * 1.3)); x <= Math.min(W - 1, Math.round(cx + SW * 1.3)); x++) if (pm[o + x] > 0.5) { if (l < 0) l = x; rgt = x; }
+    }
+    if (l < 0) { cxs[r] = cx; ws[r] = 0; } else { cxs[r] = (l + rgt) / 2; ws[r] = (rgt - l) / 2; }
+  }
+  const k = Math.max(2, Math.round(T * 0.05));
+  const smooth = a => { const b = new Float32Array(rows); for (let r = 0; r < rows; r++) { let s = 0, c = 0; for (let j = Math.max(0, r - k); j <= Math.min(rows - 1, r + k); j++) { s += a[j]; c++; } b[r] = s / c; } return b; };
+  const cS = smooth(cxs), wS = smooth(ws);
+  // full effect inside the silhouette, fading out within a quarter of the half-width outside it
+  const hf = t => t <= 1 ? 1 : t >= 1.25 ? 0 : 0.5 * (1 + Math.cos(Math.PI * (t - 1) / 0.25));
+  for (let r = 0; r < rows; r++) {
+    const y = Y0 + r, c = amt * 0.06 * wv(y), cx = cS[r], w = wS[r];
+    if (c < 0.002 || w < 6) continue;
+    const x0 = Math.max(0, Math.floor(cx - 1.3 * w)), x1 = Math.min(W - 1, Math.ceil(cx + 1.3 * w));
+    for (let x = x0; x <= x1; x++) {
+      const u = x - cx; let us = u;
+      for (let it = 0; it < 4; it++) us = u / (1 - c * hf(Math.abs(us) / w));
+      dx[y * W + x] += us - u;
+    }
+  }
+}
+
+// Last colour step:
+// 1) light clothing under warm indoor light loses most of the yellow cast, so white looks white again
+//    (only when the photo's light really is warm; a yellow dress in neutral light is left alone);
+// 2) hair is put back as it was in the original photo: no strand lighter, greyer or sharper than it was.
+function finishStage(R, G, B, P, lut) {
+  const { W, H, A, base } = S, n = W * H;
+  const cast = A.tone && A.tone.cast, warm = cast ? ss(8, 22, cast[0] - cast[2]) : 0;
+  if (A.cloth && warm > 0.01 && P.tone > 0.01) {
+    const sc = Math.min(1, 560 / Math.max(W, H)), w = Math.max(8, Math.round(W * sc)), h = Math.max(8, Math.round(H * sc)), m = w * h;
+    const ch = [0, 1, 2].map(c => { const v = new Float32Array(n); for (let i = 0; i < n; i++) v[i] = base[i * 4 + c] / 255; return blur(downscale(v, W, H, w, h), w, h, 1, 1); });
+    const cl = downscale(A.cloth, W, H, w, h), dCb = new Float32Array(m), dCr = new Float32Array(m), k = 0.55 * warm * Math.min(1, P.tone / 0.3);
+    for (let i = 0; i < m; i++) {
+      const y = 0.299 * ch[0][i] + 0.587 * ch[1][i] + 0.114 * ch[2][i], cb = (ch[2][i] - y) * 0.564, cr = (ch[0][i] - y) * 0.713, c = Math.hypot(cb, cr);
+      // bright, pale and yellowish cloth only (not saturated colours, not dark fabric)
+      const wt = ss(0.4, 0.8, cl[i]) * ss(0.3, 0.45, y) * (1 - ss(0.1, 0.14, c)) * ss(0.005, 0.02, -cb) * ss(-0.01, 0.01, cr) * (cb < -0.005 ? 1 - ss(0.8, 0.95, cr / -cb) : 0) * k;
+      // most of the yellow goes; a hint of warmth stays so it reads ivory, not blue-white
+      dCb[i] = wt * (-0.022 - cb); dCr[i] = wt * (0.012 - cr);
+    }
+    const uCb = upsample(dCb, w, h, W, H), uCr = upsample(dCr, w, h, W, H), sk = A.skinApply;
+    for (let i = 0; i < n; i++) {
+      const f = sk ? 1 - Math.min(1, sk[i] * 2) : 1, dcb = uCb[i] * f, dcr = uCr[i] * f;
+      if (dcb === 0 && dcr === 0) continue;
+      R[i] = clamp(R[i] + 1.402 * dcr, 0, 1); G[i] = clamp(G[i] - 0.344136 * dcb - 0.714136 * dcr, 0, 1); B[i] = clamp(B[i] + 1.772 * dcb, 0, 1);
+    }
+  }
+  if (A.hair) {
+    const hm = A.hair, eye = A.eyeMask;
+    for (let i = 0; i < n; i++) {
+      const hw = Math.min(1, hm[i] * 1.6) * (eye ? 1 - Math.min(1, eye[i] * 1.5) : 1); if (hw < 0.01) continue;
+      const r = base[i * 4], g = base[i * 4 + 1], b = base[i * 4 + 2], l = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      // dark hair: exactly the original pixels. Fair hair follows the photo's overall exposure fix only.
+      const t = ss(0.2, 0.45, l);
+      R[i] += (lerp(r / 255, lut[0][r], t) - R[i]) * hw; G[i] += (lerp(g / 255, lut[1][g], t) - G[i]) * hw; B[i] += (lerp(b / 255, lut[2][b], t) - B[i]) * hw;
+    }
+  }
+}
+
+function render() {
+  const { W, H, base, A } = S, n = W * H, P = S.P, log = {};
+  const lut = toneLUT(P.tone);
+  const R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n);
+  for (let i = 0; i < n; i++) { R[i] = lut[0][base[i * 4]]; G[i] = lut[1][base[i * 4 + 1]]; B[i] = lut[2][base[i * 4 + 2]]; }
+  if (P.tone > 0.01) { // mild vibrance, skin excluded
+    const v = 0.12 * P.tone, sk = A.skin;
+    for (let i = 0; i < n; i++) {
+      const mx = Math.max(R[i], G[i], B[i]), mn = Math.min(R[i], G[i], B[i]), sat = mx > 0 ? (mx - mn) / mx : 0;
+      const k = v * (1 - sat) * (1 - sk[i]); if (k < 0.002) continue;
+      const l = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i];
+      R[i] = clamp(l + (R[i] - l) * (1 + k), 0, 1); G[i] = clamp(l + (G[i] - l) * (1 + k), 0, 1); B[i] = clamp(l + (B[i] - l) * (1 + k), 0, 1);
+    }
+  }
+  const t = [performance.now()];
+  faceStage(R, G, B, P, log); t.push(performance.now());
+  skinStage(R, G, B, P, log);
+  toneStage(R, G, B, P, log);
+  if (S.fine) peachStage(R, G, B, P);
+  eyeStage(R, G, B, P);
+  makeupStage(R, G, B, P);
+  if (S.fine && P.clean > 0.01) { cleanStage(R, G, B, P); detailStage(R, G, B, { ...P, detail: P.detail * 0.45 }); } // clean first, then a light crisping of real edges
+  else detailStage(R, G, B, P);
+  t.push(performance.now());
+  finishStage(R, G, B, P, lut);
+  if (S.fine) hairStage(R, G, B, P); // only when asked for (发丝光泽), on top of the untouched hair
+  if (P.bg > 0.01 && A.personSoft) bgStage(R, G, B, P); t.push(performance.now());
+  const o = geometry(R, G, B, P);
+  post(o, P);
+  const img = new ImageData(o.W, o.H), d = img.data;
+  for (let i = 0, m = o.W * o.H; i < m; i++) { d[i * 4] = 255 * o.R[i]; d[i * 4 + 1] = 255 * o.G[i]; d[i * 4 + 2] = 255 * o.B[i]; d[i * 4 + 3] = 255; }
+  S.out = img; t.push(performance.now());
+  log.t = t.slice(1).map((v, i) => Math.round(v - t[i]));
+  S.log = log;
+}
+
+// ---------- display ----------
+const view = $('#view'), brush = $('#brush');
+function show(which) {
+  if (which === 'orig') {
+    // the original stretched onto the result's canvas, so it lines up even after leg lengthening
+    const c = document.createElement('canvas'); c.width = S.W; c.height = S.H; c.getContext('2d').putImageData(S.baseImage, 0, 0);
+    const ctx = view.getContext('2d'); ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(c, 0, 0, view.width, view.height);
+    $('#badge').textContent = '原图';
+    return;
+  }
+  const img = which === 'base' ? S.baseImage : S.out;
+  if (!img) return;
+  const resized = view.width !== img.width || view.height !== img.height;
+  view.width = img.width; view.height = img.height;
+  view.getContext('2d').putImageData(img, 0, 0);
+  $('#badge').textContent = which === 'base' ? (S.erase ? '消除笔 · 在原图上涂抹' : '原图') : '修图后';
+  if (resized && typeof applyZoom === 'function') applyZoom();
+}
+function schedule() {
+  if (!S.A) return;
+  if (S.rendering) { S.pending = true; return; }
+  S.rendering = true; $('#busy').hidden = false;
+  setTimeout(() => {
+    const t0 = performance.now();
+    try { render(); } catch (e) { console.error(e); toast('处理出错：' + e.message); }
+    S.ms = performance.now() - t0;
+    if (!S.erase) show('out');
+    renderReport();
+    S.rendering = false; $('#busy').hidden = true;
+    if (S.pending) { S.pending = false; schedule(); }
+  }, 30);
+}
+
+// ---------- photo score ----------
+// Measures how finished the photo looks, from things retouchers fix: skin texture, evenness, dark circles,
+// complexion, light, and how defined the eyes and lips are. Same yardstick before and after.
+const SCORE_PARTS = [['肤质', 0.2], ['肤色均匀', 0.17], ['黑眼圈', 0.15], ['气色', 0.17], ['光线', 0.13], ['五官神采', 0.18]];
+function scorePhoto(img) {
+  const A = S.A, bx = A.faceBox, W = S.W;
+  if (!bx || !A.allowed) return null;
+  const d = img.data, iw = img.width, w = bx.w, h = Math.min(bx.h, img.height - bx.y0), n = w * h;
+  if (h < 8) return null;
+  const L = new Float32Array(n), Cr = new Float32Array(n);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const q = ((y + bx.y0) * iw + x + bx.x0) * 4, r = d[q] / 255, g = d[q + 1] / 255, b = d[q + 2] / 255, i = y * w + x;
+    L[i] = 0.299 * r + 0.587 * g + 0.114 * b; Cr[i] = 0.5 * r - 0.4187 * g - 0.0813 * b;
+  }
+  const at = (m, i) => m[(Math.floor(i / w) + bx.y0) * W + (i % w) + bx.x0];
+  // evenness = blotches at a mid scale (bigger than pores, smaller than the face's own light and shade)
+  const rq = r => Math.max(1, Math.round(A.fw * r));
+  const L1 = blur(L, w, h, rq(0.006)), M1 = blur(L, w, h, rq(0.02), 2), M2 = blur(L, w, h, rq(0.08), 2), C1 = blur(Cr, w, h, rq(0.02), 2), C2 = blur(Cr, w, h, rq(0.08), 2);
+  let rs = 0, rc = 0, bl = 0, bc = 0, cs = 0, cl = 0, cc = 0, us = 0, uc = 0, es = 0, es2 = 0, ec = 0, lp = 0, lc = 0, ref = 0, refc = 0;
+  for (let i = 0; i < n; i += 2) {
+    const al = at(A.allowed, i), un = at(A.under, i);
+    if (al > 0.9 && un < 0.2 && at(A.skin, i) > 0.5) {
+      rs += Math.abs(L[i] - L1[i]); rc++; cs += L[i]; cl += Cr[i]; cc++;
+      if (!A.mk || at(A.mk.blush, i) < 0.15) { bl += Math.abs(M1[i] - M2[i]) + 2 * Math.abs(C1[i] - C2[i]); bc++; } // blush is intended colour
+    }
+    if (un > 0.6) { us += L[i]; uc++; }
+    if (A.cheekRef && at(A.cheekRef, i) > 0.5) { ref += L[i]; refc++; }
+    if (A.eyeMask && at(A.eyeMask, i) > 0.6) { es += L[i]; es2 += L[i] * L[i]; ec++; }
+    if (A.mk && at(A.mk.lip, i) > 0.6) { lp += Cr[i]; lc++; }
+  }
+  if (cc < 20) return null;
+  const sd = (s, s2, c) => Math.sqrt(Math.max(0, s2 / c - (s / c) ** 2));
+  const rough = rs / rc, even = bl / Math.max(1, bc), skinL = cs / cc, skinCr = cl / cc;
+  const gap = uc && refc ? ref / refc - us / uc : 0, eyeStd = ec ? sd(es, es2, ec) : 0.1, lipCr = lc ? lp / lc - skinCr : 0.03;
+  // whole-photo light: mid-tone level and contrast range
+  let hs = new Uint32Array(64), tot = 0;
+  for (let i = 0; i < d.length; i += 4 * 7) { hs[Math.min(63, (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) >> 2)]++; tot++; }
+  const pct = q => { let a = 0; for (let i = 0; i < 64; i++) { a += hs[i]; if (a >= q * tot) return i / 63; } return 1; };
+  const range = pct(0.95) - pct(0.05);
+  const parts = [
+    100 - 70 * ss(0.003, 0.024, rough),
+    100 - 70 * ss(0.008, 0.1, even),
+    100 - 80 * ss(-0.01, 0.09, gap),
+    // 气色: healthy warm colour matters more than being white; very pale or very dark skin scores lower
+    55 + 30 * ss(0.035, 0.08, skinCr) + 15 * ss(0.3, 0.5, skinL) - 250 * Math.max(0, skinL - 0.78) - 300 * Math.max(0, skinCr - 0.12),
+    100 - 120 * Math.abs(range - 0.7) - 100 * Math.max(0, Math.abs(skinL - 0.66) - 0.08),
+    45 + 30 * ss(0.06, 0.2, eyeStd) + 25 * ss(0.01, 0.07, lipCr),
+  ].map(v => clamp(Math.round(v), 30, 99));
+  const total = Math.round(parts.reduce((s, v, i) => s + v * SCORE_PARTS[i][1], 0));
+  return { total, parts, raw: { rough, even, gap, skinL, skinCr, eyeStd, lipCr, range } };
+}
+function renderScore() {
+  const box = $('#score'), b = S.scoreBefore, a = S.out && S.A ? scorePhoto(S.out) : null;
+  if (!b || !a) { box.hidden = true; return; }
+  box.hidden = false;
+  $('#sBefore').textContent = b.total; $('#sAfter').textContent = a.total;
+  $('#sDelta').textContent = (a.total >= b.total ? '+' : '') + (a.total - b.total);
+  $('#sBars').innerHTML = SCORE_PARTS.map(([name], i) =>
+    `<div class="sbar"><span>${name}</span><i><b style="width:${b.parts[i]}%"></b><em style="width:${a.parts[i]}%"></em></i><output>${b.parts[i]}→${a.parts[i]}</output></div>`).join('');
+}
+
+function renderReport() {
+  renderScore();
+  const A = S.A, st = A.stats, L = S.log || {}, rows = [];
+  const nf = A.faces.length;
+  rows.push(['人脸', nf ? `${nf} 张` : '没有检测到（只调光线、背景）']);
+  if (st.lab) {
+    // undertone from the hue angle; photo lighting makes absolute "light/dark" classes unreliable
+    const hue = Math.atan2(st.lab.b, st.lab.a) * 180 / Math.PI, tone = hue < 40 ? '粉调' : hue < 58 ? '中性调' : '黄调';
+    rows.push(['肤色', `${tone} <span class="num">(h ${hue.toFixed(0)}°)</span>，只提亮不改色调`]);
+    rows.push(['肤质', `${st.rough < 0.014 ? '细腻' : st.rough < 0.021 ? '中等' : '纹理较明显'} <span class="num">(${(st.rough * 1000).toFixed(1)})</span>`]);
+  }
+  if (L.fixed != null) rows.push(['瑕疵', `修掉 ${L.fixed} 处${L.kept ? `，保留 ${L.kept} 处痣/雀斑` : ''}`]);
+  if (S.fine && nf) rows.push(['精修', '瑕疵两遍处理 · 匀肤色 · 控油光 · 光影 · 眼神']);
+  rows.push(['风格', `${S.look ? LOOKS[S.look].n + ' · ' : ''}妆容${MAKEUPS[S.mk].n} · 调色${GRADES[S.grade].n.replace('…', '')} · 氛围${ATMOS[S.atmo]} · ${BACKS[S.back].n}`]);
+  if (st.underGap != null) rows.push(['黑眼圈', st.underGap > 0.05 ? '比较明显' : st.underGap > 0.02 ? '轻微' : '几乎没有']);
+  const T = A.tone, light = T.gamma < 0.97 ? '偏暗，已提亮' : '正常';
+  let cast = '中性';
+  if (T.cast) { const [r, g, b] = T.cast; if (r - b > 14) cast = '偏暖黄'; else if (b - r > 14) cast = '偏冷蓝'; else if (g - (r + b) / 2 > 8) cast = '偏绿'; }
+  rows.push(['光线', `${light} · 色调${cast}`]);
+  rows.push(['清晰度', `${st.sharp < 0.009 ? '偏软' : st.sharp < 0.016 ? '正常' : '清晰'}${S.P.detail > 0.01 ? '，已降噪锐化' : ''}`]);
+  rows.push(['人像', A.person ? `占画面 <span class="num">${Math.round(A.personFrac * 100)}%</span>` : '未分割出人像']);
+  rows.push(['身体', A.legsOK ? '全身，可瘦身和长腿' : A.bodyOK ? '半身，可瘦身' : '未检测到躯干']);
+  const big = S.bmp ? Math.min(1, EXPORT_MAX / Math.max(S.bmp.width, S.bmp.height)) : 1;
+  rows.push(['预览', `<span class="num">${S.out ? S.out.width : S.W}×${S.out ? S.out.height : S.H}</span> · <span class="num">${Math.round(S.ms || 0)} ms</span>`]);
+  if (S.bmp) rows.push(['保存', `高清 <span class="num">${Math.round(S.bmp.width * big)}×${Math.round(S.bmp.height * big)}</span> 左右`]);
+  $('#report').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+}
+
+// ---------- loading a photo ----------
+function drawBase(bmp, max) {
+  const sc = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const W = Math.round(bmp.width * sc), H = Math.round(bmp.height * sc);
+  let src = $('#src'); if (!src) { src = document.createElement('canvas'); src.id = 'src'; src.hidden = true; document.body.appendChild(src); }
+  src.width = W; src.height = H;
+  const ctx = src.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, 0, 0, W, H);
+  return { W, H, img: ctx.getImageData(0, 0, W, H) };
+}
+async function loadFile(file) {
+  if (!file || !file.type.startsWith('image/')) { toast('请选择图片文件'); return; }
+  S.name = (file.name || 'photo').replace(/\.[^.]+$/, '');
+  let bmp;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch { try { bmp = await createImageBitmap(file); } catch { toast('这张图片打不开，换一张试试'); return; } }
+  S.bmp = bmp;
+  const pv = drawBase(bmp, PREVIEW_MAX);
+  S.W = pv.W; S.H = pv.H; S.baseImage = pv.img; S.base = pv.img.data; S.history = []; S.holes = [];
+  S.A = null; S.out = null; exitErase();
+  $('.app').classList.add('has-photo');
+  $('#empty').hidden = true; $('#frame').hidden = false; $('#newphoto').hidden = false; $('#zoombar').hidden = false;
+  resetZoom();
+  show('base'); $('#badge').textContent = '分析中…'; $('#busy').hidden = false;
+  if (!M.face && !modelError) setStatus('等模型加载完就开始分析…');
+  await new Promise(r => setTimeout(r, 30));
+  await analyze();
+  if (!modelError) setStatus('模型就绪，照片只在本机处理', 'ok');
+  S.scoreBefore = scorePhoto(S.baseImage);
+  const A = S.A, nf = A.faces.length;
+  for (const k of ['smooth', 'acne', 'dark', 'folds', 'slim', 'eyes', 'nose']) setAvail(k, nf > 0, '没有检测到人脸');
+  setAvail('iris', !!(A.irises && A.irises.length), '没有检测到眼睛');
+  for (const k of ['white', 'unify', 'fill']) setAvail(k, A.hasSkin, '没有检测到皮肤');
+  setAvail('clean', true);
+  setAvail('peach', !!A.stats.lab, '没有检测到人脸');
+  setAvail('hair', !!A.personSoft, '没有分割出人像');
+  setAvail('lips', nf > 0, '没有检测到人脸');
+  setAvail('body', A.bodyOK, '需要拍到肩膀和腰臀');
+  setAvail('legs', A.legsOK, '需要拍到全身（含脚踝）');
+  setAvail('bg', !!A.personSoft, '没有分割出人像');
+  setAvail('tone', true);
+  setAvail('detail', true);
+  setAvail('contour', nf > 0, '没有检测到人脸');
+  setAvail('eyelight', !!A.irisMask, '没有检测到眼睛');
+  setAvail('bgtone', !!A.personSoft, '没有分割出人像');
+  setAvail('makeup', !!A.mk, '没有检测到人脸');
+  for (const k of ['glow', 'vignette', 'grain']) setAvail(k, true);
+  for (const id of ['#compare', '#save', '#eraseMode']) $(id).disabled = false;
+  $('#eraseUndo').disabled = true;
+  applyPreset(S.preset);
+}
+
+$('#file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+$('#newphoto').addEventListener('click', () => $('#file').click());
+$('#swapPhoto').addEventListener('click', () => $('#file').click());
+// close the current photo and go back to the start screen
+$('#closePhoto').addEventListener('click', () => {
+  if (S.erase) exitErase();
+  S.A = null; S.out = null; S.base = null; S.baseImage = null; S.bmp = null; S.history = []; S.holes = []; S.pending = false; S.scoreBefore = null;
+  resetZoom();
+  $('.app').classList.remove('has-photo');
+  $('#frame').hidden = true; $('#zoombar').hidden = true; $('#empty').hidden = false; $('#newphoto').hidden = true; $('#score').hidden = true;
+  $('#report').innerHTML = '<dd class="placeholder">放入照片后，这里会显示分析结果和修了哪些地方。</dd>';
+  for (const id of ['#compare', '#save', '#eraseMode', '#eraseUndo']) $(id).disabled = true;
+  for (const p of PARAMS) setAvail(p.k, false);
+  renderChips();
+});
+const drop = $('#drop');
+for (const t of [document.body]) {
+  t.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  t.addEventListener('dragleave', () => drop.classList.remove('over'));
+  t.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); loadFile(e.dataTransfer.files[0]); });
+}
+document.addEventListener('paste', e => { const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/')); if (f) loadFile(f); });
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => applyPreset(+b.dataset.preset)));
+$('#resetauto').addEventListener('click', () => applyPreset(1));
+$('#keepMoles').addEventListener('change', schedule);
+$('#keepTexture').addEventListener('change', schedule);
+
+// remembered preferences
+$('#keepMoles').checked = prefs.keepMoles ?? true;
+$('#keepTexture').checked = prefs.keepTexture ?? true;
+for (const id of ['keepMoles', 'keepTexture']) $('#' + id).addEventListener('change', e => { prefs[id] = e.target.checked; savePrefs(); });
+S.preset = prefs.preset ?? 1; if (!PRESETS[S.preset]) S.preset = 1; applyPreset(S.preset); renderChips();
+
+// compare: press and hold (button or space) to see the original in the same place, zoom included
+let holding = false;
+const holdOn = e => { if (e) e.preventDefault(); if (!S.out || S.erase) return; holding = true; show('orig'); };
+const holdOff = () => { if (!holding) return; holding = false; show('out'); };
+for (const b of [$('#compare'), $('#holdCmp')]) {
+  b.addEventListener('pointerdown', holdOn);
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, holdOff);
+  b.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') holdOn(e); });
+  b.addEventListener('keyup', holdOff);
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
+document.addEventListener('keydown', e => {
+  if (e.code !== 'Space' || e.repeat || /INPUT|BUTTON|TEXTAREA/.test(document.activeElement?.tagName)) return;
+  holdOn(e);
+});
+document.addEventListener('keyup', e => { if (e.code === 'Space') holdOff(); });
+
+// zoom & pan: wheel, pinch, double-click, or the buttons under the photo
+const wrap = $('#canvaswrap'), frame = $('#frame');
+const Z = { z: 1, x: 0, y: 0 };
+const fitScale = () => (view.clientWidth / view.width) || 1;
+function applyZoom() {
+  frame.style.transform = Z.z === 1 ? '' : `translate(${Z.x}px, ${Z.y}px) scale(${Z.z})`;
+  frame.classList.toggle('zoomed', Z.z > 1);
+  $('#zoomLabel').textContent = Math.round(Z.z * fitScale() * 100) + '%';
+}
+function clampPan(L0, T0) {
+  const wr = wrap.getBoundingClientRect(), fw = view.clientWidth * Z.z, fh = view.clientHeight * Z.z;
+  const lim = (p0, size, ws, wsize) => size <= wsize ? [ws + (wsize - size) / 2 - p0, ws + (wsize - size) / 2 - p0] : [ws + wsize - size - p0, ws - p0];
+  const [ax, bx] = lim(L0, fw, wr.left, wr.width), [ay, by] = lim(T0, fh, wr.top, wr.height);
+  Z.x = clamp(Z.x, ax, bx); Z.y = clamp(Z.y, ay, by);
+}
+function zoomAt(z, cx, cy) {
+  z = clamp(z, 1, Math.max(2, 4 / fitScale()));
+  const r = frame.getBoundingClientRect(), L0 = r.left - Z.x, T0 = r.top - Z.y;
+  const lx = (cx - r.left) / Z.z, ly = (cy - r.top) / Z.z;
+  Z.x = cx - L0 - lx * z; Z.y = cy - T0 - ly * z; Z.z = z;
+  if (z === 1) Z.x = Z.y = 0; else clampPan(L0, T0);
+  applyZoom();
+}
+function resetZoom() { Z.z = 1; Z.x = Z.y = 0; applyZoom(); }
+const wrapCenter = () => { const r = wrap.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+$('#zoomIn').addEventListener('click', () => zoomAt(Z.z * 1.5, ...wrapCenter()));
+$('#zoomOut').addEventListener('click', () => zoomAt(Z.z / 1.5, ...wrapCenter()));
+$('#zoomFit').addEventListener('click', resetZoom);
+$('#zoom100').addEventListener('click', () => zoomAt(1 / fitScale(), ...wrapCenter()));
+wrap.addEventListener('wheel', e => { if (!S.out) return; e.preventDefault(); zoomAt(Z.z * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
+wrap.addEventListener('dblclick', e => { if (!S.out || S.erase) return; zoomAt(Z.z > 1.01 ? 1 : Math.max(2, 1 / fitScale()), e.clientX, e.clientY); });
+const ptrs = new Map(); let pan = null, pinch = null;
+wrap.addEventListener('pointerdown', e => {
+  if (!S.out) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) { painting = false; const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: Z.z }; pan = null; }
+  else if (ptrs.size === 1 && Z.z > 1 && !S.erase) { pan = { x: e.clientX, y: e.clientY, zx: Z.x, zy: Z.y }; wrap.setPointerCapture(e.pointerId); }
+});
+wrap.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && ptrs.size === 2) { const [a, b] = [...ptrs.values()]; zoomAt(pinch.z * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2); }
+  else if (pan) { const r = frame.getBoundingClientRect(), L0 = r.left - Z.x, T0 = r.top - Z.y; Z.x = pan.zx + e.clientX - pan.x; Z.y = pan.zy + e.clientY - pan.y; clampPan(L0, T0); applyZoom(); }
+});
+for (const ev of ['pointerup', 'pointercancel']) wrap.addEventListener(ev, e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) pan = null; });
+window.addEventListener('resize', () => { if (S.out) applyZoom(); });
+
+// save: re-run the whole pipeline on a larger copy of the photo, replaying eraser strokes
+function scaleMask(m, w0, h0, W, H) {
+  const o = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) { const sy = Math.min(h0 - 1, (y * h0 / H) | 0); for (let x = 0; x < W; x++) o[y * W + x] = m[sy * w0 + Math.min(w0 - 1, (x * w0 / W) | 0)]; }
+  return o;
+}
+async function renderFull() {
+  const target = Math.min(EXPORT_MAX, Math.max(S.bmp.width, S.bmp.height));
+  if (target <= Math.max(S.W, S.H) + 8) return S.out;
+  const keep = { W: S.W, H: S.H, base: S.base, baseImage: S.baseImage, A: S.A, auto: S.auto, out: S.out, log: S.log };
+  try {
+    const big = drawBase(S.bmp, EXPORT_MAX);
+    S.W = big.W; S.H = big.H; S.baseImage = big.img; S.base = big.img.data;
+    await analyze();
+    for (const h of S.holes) inpaint(scaleMask(h, keep.W, keep.H, big.W, big.H));
+    render();
+    return S.out;
+  } finally {
+    Object.assign(S, keep);
+    const src = $('#src'); src.width = keep.W; src.height = keep.H; src.getContext('2d').putImageData(keep.baseImage, 0, 0);
+  }
+}
+let downloads = null;
+if (window.claude && window.claude.use) window.claude.use('downloads').then(d => downloads = d).catch(() => {});
+$('#save').addEventListener('click', async () => {
+  if (!S.out || S.rendering) return;
+  if (S.erase) exitErase();
+  const btn = $('#save'); btn.disabled = true; btn.textContent = '正在生成高清大图…'; $('#busy').hidden = false;
+  await new Promise(r => setTimeout(r, 40));
+  let img;
+  S.rendering = true;
+  try { img = await renderFull(); }
+  catch (e) { console.error(e); img = S.out; toast('高清处理失败，改为保存预览尺寸'); }
+  S.rendering = false;
+  btn.disabled = false; btn.textContent = '保存修好的照片'; $('#busy').hidden = true;
+  if (S.pending) { S.pending = false; schedule(); }
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  c.getContext('2d').putImageData(img, 0, 0);
+  c.toBlob(async blob => {
+    const filename = `${S.name}_原相修图.jpg`;
+    if (downloads) {
+      try { await downloads.save({ filename, data: blob }); toast(`已保存 ${img.width}×${img.height}`); }
+      catch (e) { toast(e && e.code === 'declined' ? '已取消保存' : '这里无法直接保存，请在图片上右键或长按保存'); }
+      return;
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, 'image/jpeg', 0.95);
+});
+
+// ---------- eraser (smart clone + seamless correction) ----------
+let painting = false, last = null;
+function enterErase() {
+  S.erase = true; brush.width = S.W; brush.height = S.H; brush.classList.add('on');
+  brush.getContext('2d').clearRect(0, 0, S.W, S.H);
+  $('#eraseMode').textContent = '退出涂抹'; $('#brushCtl').hidden = false; $('#eraseApply').hidden = false;
+  show('base');
+}
+function exitErase() {
+  S.erase = false; brush.classList.remove('on'); brush.getContext('2d').clearRect(0, 0, brush.width, brush.height);
+  $('#eraseMode').textContent = '开始涂抹'; $('#brushCtl').hidden = true; $('#eraseApply').hidden = true;
+  if (S.out) show('out');
+}
+$('#eraseMode').addEventListener('click', () => S.erase ? exitErase() : enterErase());
+$('#brushSize').addEventListener('input', e => $('#brushOut').textContent = e.target.value);
+const toImg = e => { const r = brush.getBoundingClientRect(); return { x: (e.clientX - r.left) * S.W / r.width, y: (e.clientY - r.top) * S.H / r.height }; };
+function stroke(a, b) {
+  const ctx = brush.getContext('2d');
+  ctx.strokeStyle = 'rgba(224,80,120,0.55)'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.min(S.W, S.H) * $('#brushSize').value / 100;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x + 0.01, b.y); ctx.stroke();
+}
+brush.addEventListener('pointerdown', e => { if (!S.erase) return; painting = true; brush.setPointerCapture(e.pointerId); last = toImg(e); stroke(last, last); });
+brush.addEventListener('pointermove', e => { if (!painting) return; const p = toImg(e); stroke(last, p); last = p; });
+for (const ev of ['pointerup', 'pointercancel']) brush.addEventListener(ev, () => painting = false);
+
+$('#eraseApply').addEventListener('click', () => {
+  const { W, H } = S, d = brush.getContext('2d').getImageData(0, 0, W, H).data, hole = new Uint8Array(W * H);
+  let any = 0; for (let i = 0; i < hole.length; i++) if (d[i * 4 + 3] > 10) { hole[i] = 1; any++; }
+  if (!any) { toast('先在要去掉的东西上涂抹'); return; }
+  S.history.push(new Uint8ClampedArray(S.base)); S.holes.push(hole);
+  $('#busy').hidden = false;
+  setTimeout(() => {
+    inpaint(hole);
+    S.baseImage = new ImageData(S.base, W, H);
+    $('#busy').hidden = true; $('#eraseUndo').disabled = false;
+    exitErase(); schedule(); toast('已消除');
+  }, 30);
+});
+$('#eraseUndo').addEventListener('click', () => {
+  const prev = S.history.pop(); if (!prev) return;
+  S.holes.pop();
+  S.base.set(prev); S.baseImage = new ImageData(S.base, S.W, S.H);
+  $('#eraseUndo').disabled = !S.history.length; schedule();
+});
+
+function components(hole, W, H) {
+  const lab = new Int32Array(W * H).fill(-1), comps = [];
+  for (let i = 0; i < hole.length; i++) {
+    if (!hole[i] || lab[i] >= 0) continue;
+    const id = comps.length, st = [i], px = []; lab[i] = id;
+    let x0 = W, y0 = H, x1 = 0, y1 = 0;
+    while (st.length) {
+      const j = st.pop(), x = j % W, y = (j - x) / W; px.push(j);
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (const k of [x > 0 ? j - 1 : -1, x < W - 1 ? j + 1 : -1, y > 0 ? j - W : -1, y < H - 1 ? j + W : -1]) if (k >= 0 && hole[k] && lab[k] < 0) { lab[k] = id; st.push(k); }
+    }
+    comps.push({ px, x0, y0, x1, y1 });
+  }
+  return comps;
+}
+function pushPull(vals, wgt, w, h) {
+  // fills pixels with weight < 1 from coarser levels
+  if (w <= 1 && h <= 1) return;
+  const w2 = Math.ceil(w / 2), h2 = Math.ceil(h / 2), k = vals.length;
+  const v2 = vals.map(() => new Float32Array(w2 * h2)), g2 = new Float32Array(w2 * h2), sv = new Float64Array(k);
+  for (let y = 0; y < h2; y++) for (let x = 0; x < w2; x++) {
+    let sw = 0; sv.fill(0);
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+      const xx = 2 * x + dx, yy = 2 * y + dy; if (xx >= w || yy >= h) continue;
+      const i = yy * w + xx, g = wgt[i]; sw += g; for (let c = 0; c < k; c++) sv[c] += vals[c][i] * g;
+    }
+    const o = y * w2 + x; g2[o] = Math.min(1, sw);
+    for (let c = 0; c < k; c++) v2[c][o] = sw > 0 ? sv[c] / sw : 0;
+  }
+  let full = true; for (let i = 0; i < g2.length; i++) if (g2[i] < 1) { full = false; break; }
+  if (!full) pushPull(v2, g2, w2, h2);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, g = wgt[i]; if (g >= 1) continue;
+    const fx = clamp((x + 0.5) / 2 - 0.5, 0, w2 - 1), fy = clamp((y + 0.5) / 2 - 0.5, 0, h2 - 1);
+    const xi = Math.floor(fx), yi = Math.floor(fy), xj = Math.min(w2 - 1, xi + 1), yj = Math.min(h2 - 1, yi + 1), tx = fx - xi, ty = fy - yi;
+    for (let c = 0; c < k; c++) {
+      const a = v2[c];
+      const up = (a[yi * w2 + xi] * (1 - tx) + a[yi * w2 + xj] * tx) * (1 - ty) + (a[yj * w2 + xi] * (1 - tx) + a[yj * w2 + xj] * tx) * ty;
+      vals[c][i] = vals[c][i] * g + up * (1 - g);
+    }
+    wgt[i] = 1;
+  }
+}
+function inpaint(holeIn) {
+  const { W, H, base } = S;
+  // grow the painted area a little so edges of the object are covered
+  const g = blur(Float32Array.from(holeIn), W, H, 2);
+  const hole = new Uint8Array(W * H); for (let i = 0; i < hole.length; i++) hole[i] = g[i] > 0.02 ? 1 : 0;
+  const orig = new Uint8ClampedArray(base);
+  for (const cp of components(hole, W, H)) {
+    const bw = cp.x1 - cp.x0 + 1, bh = cp.y1 - cp.y0 + 1, diam = Math.max(bw, bh);
+    const ring = Math.max(4, Math.round(diam * 0.2));
+    const X0 = Math.max(0, cp.x0 - ring), Y0 = Math.max(0, cp.y0 - ring), X1 = Math.min(W - 1, cp.x1 + ring), Y1 = Math.min(H - 1, cp.y1 + ring);
+    const cw = X1 - X0 + 1, chh = Y1 - Y0 + 1;
+    const hm = new Float32Array(cw * chh);
+    for (let y = 0; y < chh; y++) for (let x = 0; x < cw; x++) hm[y * cw + x] = hole[(y + Y0) * W + x + X0];
+    const near = blur(hm, cw, chh, ring);
+    const ringPts = [], holePts = [];
+    for (let i = 0; i < hm.length; i++) { if (hm[i]) holePts.push(i); else if (near[i] > 0) ringPts.push(i); }
+    const step = Math.max(1, Math.floor(ringPts.length / 700)), hstep = Math.max(1, Math.floor(holePts.length / 400));
+    const pm = S.A && S.A.person;
+    const personAt = (ox, oy) => {
+      if (!pm) return 0; let s = 0, c = 0;
+      for (let k = 0; k < holePts.length; k += hstep) { const i = holePts[k], x = i % cw, y = (i - x) / cw; s += pm[(y + Y0 + oy) * W + x + X0 + ox]; c++; }
+      return s / Math.max(1, c);
+    };
+    const targetPerson = personAt(0, 0);
+    // look for the best-matching nearby patch to clone from
+    let best = null, bestCost = Infinity;
+    for (let a = 0; a < 24; a++) for (const f of [1.0, 1.35, 1.8, 2.4, 3.1]) {
+      const ox = Math.round(Math.cos(a * Math.PI / 12) * (bw * 0.55 + ring) * f), oy = Math.round(Math.sin(a * Math.PI / 12) * (bh * 0.55 + ring) * f);
+      if (X0 + ox < 0 || Y0 + oy < 0 || X1 + ox >= W || Y1 + oy >= H) continue;
+      let bad = false;
+      for (let s = 0; s < holePts.length && !bad; s += hstep) { const i = holePts[s], x = i % cw, y = (i - x) / cw; if (hole[(y + Y0 + oy) * W + x + X0 + ox]) bad = true; }
+      if (bad) continue;
+      const borrow = Math.max(0, personAt(ox, oy) - targetPerson); // avoid copying pixels from people
+      let cost = 0, cnt = 0;
+      for (let s = 0; s < ringPts.length; s += step) {
+        const i = ringPts[s], x = i % cw, y = (i - x) / cw, p = ((y + Y0) * W + x + X0) * 4, q = ((y + Y0 + oy) * W + x + X0 + ox) * 4;
+        if (hole[(y + Y0 + oy) * W + x + X0 + ox]) { cost += 3 * 255 * 255; cnt++; continue; }
+        cost += (orig[p] - orig[q]) ** 2 + (orig[p + 1] - orig[q + 1]) ** 2 + (orig[p + 2] - orig[q + 2]) ** 2; cnt++;
+      }
+      cost = (cost / Math.max(1, cnt) + 200) * (1 + 0.04 * f) * (1 + 8 * borrow);
+      if (cost < bestCost) { bestCost = cost; best = { ox, oy }; }
+    }
+    // correction field: difference between target ring and source ring, spread smoothly into the hole
+    const vals = [0, 1, 2].map(() => new Float32Array(cw * chh)), wgt = new Float32Array(cw * chh);
+    for (let y = 0; y < chh; y++) for (let x = 0; x < cw; x++) {
+      const i = y * cw + x; if (hm[i]) continue;
+      const p = ((y + Y0) * W + x + X0) * 4;
+      if (best) {
+        const q = ((y + Y0 + best.oy) * W + x + X0 + best.ox) * 4;
+        if (hole[(y + Y0 + best.oy) * W + x + X0 + best.ox]) continue;
+        for (let c = 0; c < 3; c++) vals[c][i] = orig[p + c] - orig[q + c];
+      } else for (let c = 0; c < 3; c++) vals[c][i] = orig[p + c];
+      wgt[i] = 1;
+    }
+    pushPull(vals, wgt, cw, chh);
+    for (const i of holePts) {
+      const x = i % cw, y = (i - x) / cw, p = ((y + Y0) * W + x + X0) * 4;
+      if (best) { const q = ((y + Y0 + best.oy) * W + x + X0 + best.ox) * 4; for (let c = 0; c < 3; c++) base[p + c] = orig[q + c] + vals[c][i]; }
+      else for (let c = 0; c < 3; c++) base[p + c] = vals[c][i];
+    }
+  }
+}
+</script>
+
+</body>
+</html>
